@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Mail } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { BrandLogo } from "@/components/brand/BrandLogo";
 import { createClient } from "@/lib/supabase";
 import { Button } from "@/components/ui/Button";
 
@@ -14,6 +13,7 @@ export function LoginForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "/dashboard";
   const err = searchParams.get("error");
+  const errReason = searchParams.get("reason");
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -46,9 +46,7 @@ export function LoginForm() {
             aria-hidden
           />
           <div className="relative">
-            <div className="relative max-w-[11rem] drop-shadow-[0_2px_12px_rgba(0,0,0,0.35)]">
-              <BrandLogo className="h-8 w-auto sm:h-9" priority />
-            </div>
+            
             <p className="mt-6 text-2xl font-semibold leading-snug tracking-tight text-white">
               One map. Clear handoff. Less rework.
             </p>
@@ -81,7 +79,19 @@ export function LoginForm() {
 
             {err ? (
               <p className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-                Something went wrong confirming your email. Try again.
+                {errReason ? (
+                  <>
+                    {errReason}
+                    {errReason.toLowerCase().includes("verifier") || errReason.includes("pkce") ? (
+                      <span className="mt-2 block text-red-700/90">
+                        Open the magic link in the same browser where you requested it (e.g. not
+                        another device or a private window).
+                      </span>
+                    ) : null}
+                  </>
+                ) : (
+                  "Something went wrong confirming your email. Try again."
+                )}
               </p>
             ) : null}
 

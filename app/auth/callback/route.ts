@@ -3,9 +3,24 @@ import { type NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url);
+  const requestUrl = new URL(request.url);
+  const { searchParams, origin: urlOrigin } = requestUrl;
   const code = searchParams.get("code");
   const next = searchParams.get("next") ?? "/dashboard";
+  const supabaseErr = searchParams.get("error_description") ?? searchParams.get("error");
+
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const host = request.headers.get("host");
+  const isLocal = Boolean(host?.includes("localhost") || host?.includes("127.0.0.1"));
+  const redirectOrigin =
+    forwardedHost && !isLocal
+      ? `https://${forwardedHost}`
+      : urlOrigin;
+
+  if (supabaseErr) {
+    const q = new URLSearchParams({ error: "auth", reason: supabaseErr.slice(0, 200) });
+    return NextResponse.redirect(`${redirectOrigin}/login?${q}`);
+  }
 
   if (code) {
     const cookieStore = cookies();
@@ -32,9 +47,15 @@ export async function GET(request: NextRequest) {
 
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+      return NextResponse.redirect(`${redirectOrigin}${next.startsWith("/") ? next : `/${next}`}`);
     }
+
+    const q = new URLSearchParams({
+      error: "auth",
+      reason: (error.message ?? "exchange_failed").slice(0, 200),
+    });
+    return NextResponse.redirect(`${redirectOrigin}/login?${q}`);
   }
 
-  return NextResponse.redirect(`${origin}/login?error=auth`);
+  return NextResponse.redirect(`${redirectOrigin}/login?error=auth`);
 }

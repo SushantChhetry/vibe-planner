@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft, LayoutDashboard } from "lucide-react";
 import { BrandLogo } from "@/components/brand/BrandLogo";
+import { SlackCommunityLink } from "@/components/support/SlackCommunityLink";
 import { SupportNav } from "@/components/support/SupportNav";
 
 export function SupportShell({ children }: { children: ReactNode }) {
@@ -36,8 +37,11 @@ export function SupportShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <div className="mt-8">
+        <div className="mt-8 space-y-4">
           <SupportNav />
+          <div className="flex flex-wrap items-center gap-2">
+            <SlackCommunityLink dense />
+          </div>
         </div>
 
         <article className="prose prose-stone mt-8 max-w-none rounded-2xl border border-[var(--support-border)] bg-[var(--support-surface)] px-6 py-8 shadow-[0_2px_8px_-2px_rgba(28,25,23,0.06),0_1px_2px_rgba(28,25,23,0.04)] backdrop-blur-md prose-headings:scroll-mt-24 prose-headings:font-semibold prose-headings:tracking-tight prose-h1:mb-3 prose-h1:mt-0 prose-h1:text-2xl prose-h1:text-balance prose-h1:font-semibold prose-h1:leading-snug prose-h2:mb-3 prose-h2:mt-10 prose-h2:border-b prose-h2:border-stone-200/80 prose-h2:pb-2 prose-h2:text-xl prose-h2:font-semibold prose-h3:mb-2 prose-h3:mt-8 prose-h3:text-lg prose-p:leading-relaxed prose-p:text-stone-700 prose-a:no-underline prose-strong:font-semibold prose-strong:text-stone-900 prose-li:marker:text-teal-700/80 prose-pre:bg-transparent prose-pre:p-0 sm:px-10 sm:py-10">

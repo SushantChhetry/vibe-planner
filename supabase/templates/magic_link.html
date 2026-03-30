@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in to PuMi</title>
+  </head>
+  <body
+    style="
+      margin: 0;
+      padding: 0;
+      background-color: #fafaf9;
+      font-family:
+        ui-sans-serif,
+        system-ui,
+        -apple-system,
+        Segoe UI,
+        Roboto,
+        Helvetica,
+        Arial,
+        'Apple Color Emoji',
+        'Segoe UI Emoji',
+        sans-serif;
+      line-height: 1.5;
+      color: #292524;
+    "
+  >
+    <div style="display: none; max-height: 0; overflow: hidden">
+      Use this one-time link to finish signing in to PuMi—expires soon.
+    </div>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #fafaf9; padding: 32px 16px">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 480px; background-color: #ffffff; border-radius: 16px; border: 1px solid #e7e5e4; box-shadow: 0 8px 24px rgba(41, 37, 36, 0.06)">
+            <tr>
+              <td style="padding: 32px 28px 8px 28px">
+                <p style="margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; color: #134e4a">
+                  PuMi
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 28px 0 28px">
+                <h1 style="margin: 0 0 8px 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: #1c1917">
+                  Your sign-in link
+                </h1>
+                <p style="margin: 0 0 24px 0; font-size: 15px; color: #57534e">
+                  Hi—we received a request to sign in to <strong>PuMi</strong> for
+                  <span style="word-break: break-all">{{ .Email }}</span>. Tap the button below to continue. This link only works once and expires
+                  after a short time.
+                </p>
+                <a
+                  href="{{ .ConfirmationURL }}"
+                  style="
+                    display: inline-block;
+                    padding: 12px 22px;
+                    background-color: #0f766e;
+                    color: #fafaf9 !important;
+                    text-decoration: none;
+                    font-weight: 600;
+                    font-size: 15px;
+                    border-radius: 10px;
+                    margin-bottom: 24px;
+                  "
+                >
+                  Sign in to PuMi
+                </a>
+                <p style="margin: 0 0 8px 0; font-size: 13px; color: #78716c">
+                  If the button doesn’t work, paste this into your browser:
+                </p>
+                <p style="margin: 0 0 24px 0; font-size: 12px; word-break: break-all; color: #44403c">
+                  <a href="{{ .ConfirmationURL }}" style="color: #0f766e">{{ .ConfirmationURL }}</a>
+                </p>
+                <p style="margin: 0; font-size: 13px; color: #78716c; border-top: 1px solid #e7e5e4; padding-top: 20px">
+                  If you didn’t ask for this email, you can ignore it—your account stays secure.
+                </p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 0 28px 28px 28px">
+                <p style="margin: 24px 0 0 0; font-size: 12px; color: #a8a29e">
+                  Sent from {{ .SiteURL }}
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
