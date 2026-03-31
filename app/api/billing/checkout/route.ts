@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
+import { currentUser } from "@clerk/nextjs/server";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
+import { requireProfileId } from "@/lib/auth/profile";
 
 export async function POST() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const profileId = await requireProfileId();
+  const user = await currentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -16,13 +16,16 @@ export async function POST() {
     return NextResponse.json({ error: "Billing is not configured" }, { status: 503 });
   }
 
+  const supabase = await createClient();
+
   const { data: profile } = await supabase
     .from("profiles")
     .select("stripe_customer_id")
-    .eq("id", user.id)
+    .eq("id", profileId)
     .single();
 
   const stripeCustomerId = profile?.stripe_customer_id as string | null | undefined;
+  const email = user.primaryEmailAddress?.emailAddress ?? undefined;
 
   const origin = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const stripe = getStripe();
@@ -31,13 +34,13 @@ export async function POST() {
     mode: "subscription",
     ...(stripeCustomerId
       ? { customer: stripeCustomerId }
-      : { customer_email: user.email ?? undefined }),
+      : { customer_email: email }),
     line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${origin}/settings/billing?checkout=success`,
     cancel_url: `${origin}/settings/billing?checkout=canceled`,
-    metadata: { supabase_user_id: user.id },
+    metadata: { profile_id: profileId },
     subscription_data: {
-      metadata: { supabase_user_id: user.id },
+      metadata: { profile_id: profileId },
     },
     allow_promotion_codes: true,
   });

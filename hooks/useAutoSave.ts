@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Edge, Node } from "reactflow";
-import { createClient } from "@/lib/supabase";
+import { useClerkSupabase } from "@/lib/supabase";
 import { persistPageCanvas } from "@/lib/persist-page";
 import { persistSitemap } from "@/lib/persist-sitemap";
 import { persistWireframesForPage } from "@/lib/persist-wireframe";
@@ -33,6 +33,7 @@ export function useAutoSave({
   sitemapNodes: Node<PageNodeData>[];
   baselineSerial: string;
 }) {
+  const supabase = useClerkSupabase();
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const pageNodesRef = useRef(pageNodes);
   const pageEdgesRef = useRef(pageEdges);
@@ -59,7 +60,6 @@ export function useAutoSave({
     : serializePageSnapshot(activeTab, pageNodes, pageEdges, wireframeByBlockId);
 
   const flush = useCallback(async () => {
-    const supabase = createClient();
     setSaveStatus("saving");
 
     if (onMap) {
@@ -107,7 +107,7 @@ export function useAutoSave({
 
     setSaveStatus("saved");
     window.setTimeout(() => setSaveStatus("idle"), 2000);
-  }, [projectId, activeTab, onMap]);
+  }, [projectId, activeTab, onMap, supabase]);
 
   useEffect(() => {
     if (skipOnce.current) {
@@ -118,6 +118,7 @@ export function useAutoSave({
     const t = window.setTimeout(() => {
       void flush();
     }, 800);
+
     return () => window.clearTimeout(t);
   }, [serial, flush]);
 

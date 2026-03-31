@@ -6,7 +6,7 @@ import { syncProfileFromStripeSubscription } from "@/lib/stripe-profile-sync";
 
 export async function POST(req: Request) {
   const body = await req.text();
-  const headerStore = headers();
+  const headerStore = await headers();
   const sig = headerStore.get("stripe-signature");
   const whSecret = process.env.STRIPE_WEBHOOK_SECRET;
 

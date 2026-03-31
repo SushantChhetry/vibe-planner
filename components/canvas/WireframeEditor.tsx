@@ -10,18 +10,28 @@ import {
   type ReactNode,
 } from "react";
 import {
+  AlignHorizontalJustifyCenter,
+  AlignHorizontalJustifyEnd,
+  AlignHorizontalJustifyStart,
   AlignLeft,
   AlignVerticalSpaceBetween,
   ArrowLeft,
   Copy,
+  Eye,
+  EyeOff,
   GripVertical,
   Heading,
   Image as ImageIcon,
   LayoutPanelTop,
+  LayoutGrid,
+  LayoutTemplate,
   List,
   Maximize2,
   Minus,
   MousePointerClick,
+  PanelBottom,
+  PanelLeft,
+  PanelTop,
   Plus,
   Sparkles,
   Square,
@@ -109,6 +119,14 @@ const ELEMENT_PALETTE: Record<
 > = {
   Heading: { description: "Page or section title", Icon: Heading },
   Section: { description: "Grouped content region", Icon: LayoutPanelTop },
+  Navbar: { description: "Top bar · logo · nav links", Icon: PanelTop },
+  Hero: { description: "Above-the-fold banner / headline area", Icon: LayoutTemplate },
+  Sidebar: { description: "Secondary column · filters · nav", Icon: PanelLeft },
+  Footer: { description: "Bottom links · legal · meta", Icon: PanelBottom },
+  "Main content": {
+    description: "Primary column · feed · article body",
+    Icon: LayoutGrid,
+  },
   "Body text": { description: "Paragraph or bullets", Icon: AlignLeft },
   Image: { description: "Photo, illustration, media", Icon: ImageIcon },
   "Primary button": { description: "Main call to action", Icon: MousePointerClick },
@@ -120,10 +138,27 @@ const ELEMENT_PALETTE: Record<
   Custom: { description: "Carousel, chart, embed…", Icon: Sparkles },
 };
 
+/** One-click toolbar; modal covers the rest. */
+const QUICK_ADD_TYPES: WireElementType[] = [
+  "Navbar",
+  "Hero",
+  "Sidebar",
+  "Main content",
+  "Footer",
+  "Section",
+  "Heading",
+  "Primary button",
+];
+
 function shortTypeLabel(t: string): string {
   const map: Record<string, string> = {
     Heading: "H1",
     Section: "SEC",
+    Navbar: "NAV",
+    Hero: "HERO",
+    Sidebar: "SIDE",
+    Footer: "FTR",
+    "Main content": "MAIN",
     "Body text": "BODY",
     Image: "IMG",
     "Primary button": "1°",
@@ -141,6 +176,7 @@ const MIN_W = 72;
 const MIN_H = 36;
 const ARTBOARD_PADDING = 120;
 const GRID = 8;
+const SNAP_GUIDE_PX = 6;
 const FLUID_MAX_W = 2560;
 const FLUID_MIN_W = 320;
 const FLUID_MAX_H = 4096;
@@ -156,6 +192,26 @@ function snap(n: number): number {
   return Math.round(n / GRID) * GRID;
 }
 
+/** Snap a coordinate to a nearby alignment line (artboard / other elements). */
+function snapLineToGuides(
+  val: number,
+  candidates: number[],
+  threshold = SNAP_GUIDE_PX
+): { snapped: number; guide: number | null } {
+  let best = snap(val);
+  let bestD = threshold + 1;
+  let guide: number | null = null;
+  for (const c of candidates) {
+    const d = Math.abs(val - c);
+    if (d < bestD && d <= threshold) {
+      bestD = d;
+      best = snap(c);
+      guide = c;
+    }
+  }
+  return { snapped: best, guide };
+}
+
 function clampZoom(z: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
 }
@@ -166,6 +222,16 @@ function defaultFrameForType(t: WireElementType): { w: number; h: number } {
       return { w: 320, h: 44 };
     case "Section":
       return { w: 400, h: 160 };
+    case "Navbar":
+      return { w: 752, h: 56 };
+    case "Hero":
+      return { w: 752, h: 200 };
+    case "Sidebar":
+      return { w: 200, h: 400 };
+    case "Footer":
+      return { w: 752, h: 80 };
+    case "Main content":
+      return { w: 480, h: 320 };
     case "Body text":
       return { w: 380, h: 108 };
     case "Image":
@@ -230,16 +296,44 @@ function duplicateElement(row: WireframeElementRow, elements: WireframeElementRo
   };
 }
 
+function createRowAt(
+  blockId: string,
+  element_type: WireElementType,
+  elements: WireframeElementRow[],
+  x: number,
+  y: number
+): WireframeElementRow {
+  const { w, h } = defaultFrameForType(element_type);
+  return {
+    id: crypto.randomUUID(),
+    parent_block_id: blockId,
+    element_type,
+    label: "",
+    sort_order: elements.length,
+    created_at: new Date().toISOString(),
+    frame_x: Math.max(0, snap(x)),
+    frame_y: Math.max(0, snap(y)),
+    frame_w: w,
+    frame_h: h,
+    meta: {},
+  };
+}
+
+function toggleSelectedId(ids: string[], id: string): string[] {
+  if (ids.includes(id)) return ids.filter((x) => x !== id);
+  return [...ids, id];
+}
+
 type ResizeEdge = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
 
 type DragMode =
   | {
       id: string;
       kind: "move";
+      ids: string[];
       startClientX: number;
       startClientY: number;
-      ox: number;
-      oy: number;
+      ox: Record<string, { x: number; y: number }>;
     }
   | {
       id: string;
@@ -324,6 +418,7 @@ export function WireframeEditor({
   elements,
   onChange,
   onBack,
+  onOpenExport,
   onHistoryCheckpoint,
   pageOptions = [],
   pageSurface = false,
@@ -333,11 +428,13 @@ export function WireframeEditor({
   elements: WireframeElementRow[];
   onChange: (next: WireframeElementRow[]) => void;
   onBack: () => void;
+  onOpenExport?: () => void;
   onHistoryCheckpoint?: () => void;
   pageOptions?: { id: string; name: string }[];
   pageSurface?: boolean;
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectionIds, setSelectionIds] = useState<string[]>([]);
+  const [previewMode, setPreviewMode] = useState(false);
   const [viewportId, setViewportId] = useState<ViewportPresetId>("fluid");
   const [fluidSizeMode, setFluidSizeMode] = useState<"fit" | "custom">("fit");
   const [fluidCustomW, setFluidCustomW] = useState(1200);
@@ -345,18 +442,34 @@ export function WireframeEditor({
   const [zoom, setZoomState] = useState(1);
   const [hostRect, setHostRect] = useState({ w: 0, h: 0 });
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [marquee, setMarquee] = useState<{
+    artX0: number;
+    artY0: number;
+    artX1: number;
+    artY1: number;
+  } | null>(null);
+  const [snapGuides, setSnapGuides] = useState<{ vx?: number; hy?: number }>({});
   const lastFitArtboardRef = useRef({ w: 1200, h: 800 });
+  const lastUsedTypeRef = useRef<WireElementType>("Section");
+  const artboardInnerRef = useRef<HTMLDivElement | null>(null);
+  const marqueeLiveRef = useRef<{
+    artX0: number;
+    artY0: number;
+    artX1: number;
+    artY1: number;
+  } | null>(null);
 
   const dragRef = useRef<DragMode | null>(null);
   const elementsRef = useRef(elements);
   const onChangeRef = useRef(onChange);
-  const selectedIdRef = useRef<string | null>(null);
+  const selectionIdsRef = useRef<string[]>([]);
   const zoomRef = useRef(zoom);
+  const artboardSizeRef = useRef({ width: 1200, height: 800 });
   const scrollHostRef = useRef<HTMLDivElement | null>(null);
 
   elementsRef.current = elements;
   onChangeRef.current = onChange;
-  selectedIdRef.current = selectedId;
+  selectionIdsRef.current = selectionIds;
   zoomRef.current = zoom;
 
   const setZoom = useCallback((z: number | ((prev: number) => number)) => {
@@ -433,6 +546,28 @@ export function WireframeEditor({
   ]);
 
   useEffect(() => {
+    artboardSizeRef.current = artboardSize;
+  }, [artboardSize]);
+
+  const primarySelectedId = selectionIds.length
+    ? selectionIds[selectionIds.length - 1]
+    : null;
+  const selectedRow = primarySelectedId
+    ? elements.find((r) => r.id === primarySelectedId)
+    : undefined;
+
+  const clientToArtboard = useCallback((clientX: number, clientY: number) => {
+    const el = artboardInnerRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const r = el.getBoundingClientRect();
+    const z = zoomRef.current || 1;
+    return {
+      x: (clientX - r.left) / z,
+      y: (clientY - r.top) / z,
+    };
+  }, []);
+
+  useEffect(() => {
     const el = scrollHostRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
@@ -449,7 +584,6 @@ export function WireframeEditor({
     setZoom(usable / artboardSize.width);
   }, [hostRect.w, artboardSize.width, setZoom]);
 
-  const selectedRow = selectedId ? elements.find((r) => r.id === selectedId) : undefined;
   const atMinZoom = zoom <= ZOOM_MIN;
   const atMaxZoom = zoom >= ZOOM_MAX;
 
@@ -468,11 +602,21 @@ export function WireframeEditor({
 
   const addElementOfType = useCallback(
     (t: WireElementType) => {
+      lastUsedTypeRef.current = t;
       onHistoryCheckpoint?.();
       onChange([...elements, createRow(blockId, t, elements)]);
       closeAddModal();
     },
     [blockId, elements, onChange, onHistoryCheckpoint, closeAddModal]
+  );
+
+  const quickAdd = useCallback(
+    (t: WireElementType) => {
+      lastUsedTypeRef.current = t;
+      onHistoryCheckpoint?.();
+      onChange([...elements, createRow(blockId, t, elements)]);
+    },
+    [blockId, elements, onChange, onHistoryCheckpoint]
   );
 
   useEffect(() => {
@@ -485,33 +629,101 @@ export function WireframeEditor({
     function onKeyDown(e: KeyboardEvent) {
       if (editingTextTarget(e.target)) return;
 
-      const sid = selectedIdRef.current;
-      if (!sid) return;
+      if (e.key === "Escape") {
+        if (previewMode) {
+          setPreviewMode(false);
+          return;
+        }
+        setSelectionIds([]);
+        setAddModalOpen(false);
+        return;
+      }
+
+      if (previewMode) return;
+
+      const lower = e.key.toLowerCase();
+      if (!e.metaKey && !e.ctrlKey && lower === "a") {
+        e.preventDefault();
+        setAddModalOpen(true);
+        return;
+      }
+
+      if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (lower === "h") {
+          e.preventDefault();
+          quickAdd("Heading");
+          return;
+        }
+        if (lower === "b") {
+          e.preventDefault();
+          quickAdd("Primary button");
+          return;
+        }
+        if (lower === "i") {
+          e.preventDefault();
+          quickAdd("Input");
+          return;
+        }
+      }
+
+      const ids = selectionIdsRef.current;
+      if (ids.length === 0) return;
+
+      const step = e.shiftKey ? GRID * 4 : GRID;
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault();
+        const els = elementsRef.current;
+        const sel = new Set(ids);
+        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
+        const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
+        if (!dx && !dy) return;
+        onHistoryCheckpoint?.();
+        onChangeRef.current(
+          els.map((r) =>
+            sel.has(r.id)
+              ? {
+                  ...r,
+                  frame_x: Math.max(0, r.frame_x + dx),
+                  frame_y: Math.max(0, r.frame_y + dy),
+                }
+              : r
+          )
+        );
+        return;
+      }
 
       if (e.key === "Backspace" || e.key === "Delete") {
         e.preventDefault();
         const els = elementsRef.current;
+        const sel = new Set(ids);
         onHistoryCheckpoint?.();
-        setSelectedId(null);
-        onChangeRef.current(els.filter((r) => r.id !== sid));
+        setSelectionIds([]);
+        onChangeRef.current(els.filter((r) => !sel.has(r.id)));
         return;
       }
 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d") {
         e.preventDefault();
         const els = elementsRef.current;
-        const row = els.find((r) => r.id === sid);
-        if (!row) return;
+        const sel = new Set(ids);
+        const toDup = els.filter((r) => sel.has(r.id));
+        if (!toDup.length) return;
         onHistoryCheckpoint?.();
-        const dup = duplicateElement(row, els);
-        onChangeRef.current([...els, dup]);
-        setSelectedId(dup.id);
+        let next = [...els];
+        const newIds: string[] = [];
+        for (const row of toDup) {
+          const dup = duplicateElement(row, next);
+          next = [...next, dup];
+          newIds.push(dup.id);
+        }
+        onChangeRef.current(next);
+        setSelectionIds(newIds);
       }
     }
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onHistoryCheckpoint]);
+  }, [onHistoryCheckpoint, previewMode, quickAdd]);
 
   useEffect(() => {
     function apply(clientX: number, clientY: number) {
@@ -519,25 +731,63 @@ export function WireframeEditor({
       if (!d) return;
       const z = zoomRef.current || 1;
       const els = elementsRef.current;
-      onChangeRef.current(
-        els.map((r) => {
-          if (r.id !== d.id) return r;
-          if (d.kind === "move") {
+      const { width: aw, height: ah } = artboardSizeRef.current;
+
+      if (d.kind === "resize") {
+        onChangeRef.current(
+          els.map((r) => {
+            if (r.id !== d.id) return r;
+            const rdx = (clientX - d.startClientX) / z;
+            const rdy = (clientY - d.startClientY) / z;
+            const { x, y, w, h } = applyResize(d.ox, d.oy, d.ow, d.oh, rdx, rdy, d.edge);
             return {
               ...r,
-              frame_x: Math.max(0, snap(d.ox + (clientX - d.startClientX) / z)),
-              frame_y: Math.max(0, snap(d.oy + (clientY - d.startClientY) / z)),
+              frame_x: Math.max(0, x),
+              frame_y: Math.max(0, y),
+              frame_w: w,
+              frame_h: h,
             };
-          }
-          const rdx = (clientX - d.startClientX) / z;
-          const rdy = (clientY - d.startClientY) / z;
-          const { x, y, w, h } = applyResize(d.ox, d.oy, d.ow, d.oh, rdx, rdy, d.edge);
+          })
+        );
+        return;
+      }
+
+      const moving = new Set(d.ids);
+      const ox = d.ox;
+      const origMinX = Math.min(...d.ids.map((id) => ox[id].x));
+      const origMinY = Math.min(...d.ids.map((id) => ox[id].y));
+      const rdx = (clientX - d.startClientX) / z;
+      const rdy = (clientY - d.startClientY) / z;
+      const draftMinX = origMinX + rdx;
+      const draftMinY = origMinY + rdy;
+      const staticEls = els.filter((row) => !moving.has(row.id));
+      const candX = [
+        0,
+        snap(aw / 2),
+        aw,
+        ...staticEls.flatMap((e) => [e.frame_x, e.frame_x + e.frame_w / 2, e.frame_x + e.frame_w]),
+      ];
+      const candY = [
+        0,
+        snap(ah / 2),
+        ah,
+        ...staticEls.flatMap((e) => [e.frame_y, e.frame_y + e.frame_h / 2, e.frame_y + e.frame_h]),
+      ];
+      const { snapped: alignX, guide: gx } = snapLineToGuides(draftMinX, candX);
+      const { snapped: alignY, guide: gy } = snapLineToGuides(draftMinY, candY);
+      setSnapGuides({
+        vx: gx ?? undefined,
+        hy: gy ?? undefined,
+      });
+
+      onChangeRef.current(
+        els.map((r) => {
+          if (!moving.has(r.id)) return r;
+          const o = ox[r.id];
           return {
             ...r,
-            frame_x: Math.max(0, x),
-            frame_y: Math.max(0, y),
-            frame_w: w,
-            frame_h: h,
+            frame_x: Math.max(0, snap(o.x + alignX - origMinX)),
+            frame_y: Math.max(0, snap(o.y + alignY - origMinY)),
           };
         })
       );
@@ -550,6 +800,7 @@ export function WireframeEditor({
       if (!dragRef.current) return;
       apply(e.clientX, e.clientY);
       dragRef.current = null;
+      setSnapGuides({});
     }
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -584,20 +835,30 @@ export function WireframeEditor({
 
   function removeRow(id: string) {
     onHistoryCheckpoint?.();
-    setSelectedId((s) => (s === id ? null : s));
+    setSelectionIds((s) => s.filter((x) => x !== id));
     onChange(elements.filter((r) => r.id !== id));
   }
 
   function duplicateSelectedRow() {
-    if (!selectedRow) return;
+    const ids = selectionIdsRef.current;
+    if (!ids.length) return;
+    const sel = new Set(ids);
+    const toDup = elements.filter((r) => sel.has(r.id));
+    if (!toDup.length) return;
     onHistoryCheckpoint?.();
-    const dup = duplicateElement(selectedRow, elements);
-    onChange([...elements, dup]);
-    setSelectedId(dup.id);
+    let next = [...elements];
+    const newIds: string[] = [];
+    for (const row of toDup) {
+      const dup = duplicateElement(row, next);
+      next = [...next, dup];
+      newIds.push(dup.id);
+    }
+    onChange(next);
+    setSelectionIds(newIds);
   }
 
   function clearCanvasSelection() {
-    setSelectedId(null);
+    setSelectionIds([]);
     const ae = document.activeElement;
     if (
       ae instanceof HTMLElement &&
@@ -611,25 +872,36 @@ export function WireframeEditor({
   }
 
   function startMove(e: ReactPointerEvent, row: WireframeElementRow) {
+    if (previewMode) return;
     e.preventDefault();
     e.stopPropagation();
     onHistoryCheckpoint?.();
-    setSelectedId(row.id);
+    let ids = selectionIdsRef.current;
+    if (!ids.includes(row.id)) {
+      ids = [row.id];
+      setSelectionIds(ids);
+    }
+    const ox: Record<string, { x: number; y: number }> = {};
+    for (const id of ids) {
+      const r0 = elementsRef.current.find((x) => x.id === id);
+      if (r0) ox[id] = { x: r0.frame_x, y: r0.frame_y };
+    }
     dragRef.current = {
       id: row.id,
       kind: "move",
+      ids,
       startClientX: e.clientX,
       startClientY: e.clientY,
-      ox: row.frame_x,
-      oy: row.frame_y,
+      ox,
     };
   }
 
   function startResize(e: ReactPointerEvent, row: WireframeElementRow, edge: ResizeEdge) {
+    if (previewMode) return;
     e.preventDefault();
     e.stopPropagation();
     onHistoryCheckpoint?.();
-    setSelectedId(row.id);
+    setSelectionIds([row.id]);
     dragRef.current = {
       id: row.id,
       kind: "resize",
@@ -642,6 +914,140 @@ export function WireframeEditor({
       oh: row.frame_h,
     };
   }
+
+  const alignLeftEdges = useCallback(() => {
+    const ids = selectionIdsRef.current;
+    if (ids.length < 2) return;
+    const sel = new Set(ids);
+    const subset = elements.filter((e) => sel.has(e.id));
+    const minX = Math.min(...subset.map((e) => e.frame_x));
+    onHistoryCheckpoint?.();
+    onChange(elements.map((r) => (sel.has(r.id) ? { ...r, frame_x: minX } : r)));
+  }, [elements, onChange, onHistoryCheckpoint]);
+
+  const alignRightEdges = useCallback(() => {
+    const ids = selectionIdsRef.current;
+    if (ids.length < 2) return;
+    const sel = new Set(ids);
+    const subset = elements.filter((e) => sel.has(e.id));
+    const maxR = Math.max(...subset.map((e) => e.frame_x + e.frame_w));
+    onHistoryCheckpoint?.();
+    onChange(
+      elements.map((r) =>
+        sel.has(r.id) ? { ...r, frame_x: Math.max(0, maxR - r.frame_w) } : r
+      )
+    );
+  }, [elements, onChange, onHistoryCheckpoint]);
+
+  const alignCenterH = useCallback(() => {
+    const ids = selectionIdsRef.current;
+    if (ids.length < 2) return;
+    const sel = new Set(ids);
+    const subset = elements.filter((e) => sel.has(e.id));
+    const minL = Math.min(...subset.map((e) => e.frame_x));
+    const maxR = Math.max(...subset.map((e) => e.frame_x + e.frame_w));
+    const mid = (minL + maxR) / 2;
+    onHistoryCheckpoint?.();
+    onChange(
+      elements.map((r) =>
+        sel.has(r.id) ? { ...r, frame_x: Math.max(0, snap(mid - r.frame_w / 2)) } : r
+      )
+    );
+  }, [elements, onChange, onHistoryCheckpoint]);
+
+  const distributeVertical = useCallback(() => {
+    const ids = selectionIdsRef.current;
+    if (ids.length < 2) return;
+    const sel = new Set(ids);
+    const subset = [...elements].filter((e) => sel.has(e.id)).sort((a, b) => a.frame_y - b.frame_y);
+    if (subset.length < 2) return;
+    const firstY = subset[0].frame_y;
+    const last = subset[subset.length - 1];
+    const lastBottom = last.frame_y + last.frame_h;
+    const totalH = subset.reduce((s, e) => s + e.frame_h, 0);
+    const span = lastBottom - firstY;
+    const gap = (span - totalH) / (subset.length - 1);
+    if (gap < 0) return;
+    let y = firstY;
+    const yById = new Map<string, number>();
+    for (const e of subset) {
+      yById.set(e.id, snap(y));
+      y += e.frame_h + gap;
+    }
+    onHistoryCheckpoint?.();
+    onChange(
+      elements.map((r) => (yById.has(r.id) ? { ...r, frame_y: yById.get(r.id)! } : r))
+    );
+  }, [elements, onChange, onHistoryCheckpoint]);
+
+  const onArtboardPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (previewMode) return;
+      if (e.button !== 0) return;
+      if ((e.target as HTMLElement).closest("[data-wire-el]")) return;
+
+      e.stopPropagation();
+
+      /** Alt+click empty artboard: drop last-used type at pointer (Shift reserved for marquee add). */
+      if (e.altKey) {
+        const { x, y } = clientToArtboard(e.clientX, e.clientY);
+        const typ = lastUsedTypeRef.current;
+        const { w: fw, h: fh } = defaultFrameForType(typ);
+        onHistoryCheckpoint?.();
+        const row = createRowAt(blockId, typ, elements, x - fw / 2, y - fh / 2);
+        onChange([...elements, row]);
+        setSelectionIds([row.id]);
+        return;
+      }
+
+      const shiftHeld = e.shiftKey;
+      const p = clientToArtboard(e.clientX, e.clientY);
+      marqueeLiveRef.current = { artX0: p.x, artY0: p.y, artX1: p.x, artY1: p.y };
+      setMarquee({ ...marqueeLiveRef.current });
+
+      function onMove(ev: PointerEvent) {
+        const m = marqueeLiveRef.current;
+        if (!m) return;
+        const q = clientToArtboard(ev.clientX, ev.clientY);
+        m.artX1 = q.x;
+        m.artY1 = q.y;
+        setMarquee({ ...m });
+      }
+      function onUp() {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        const m = marqueeLiveRef.current;
+        marqueeLiveRef.current = null;
+        setMarquee(null);
+        if (!m) return;
+        const x0 = Math.min(m.artX0, m.artX1);
+        const x1 = Math.max(m.artX0, m.artX1);
+        const y0 = Math.min(m.artY0, m.artY1);
+        const y1 = Math.max(m.artY0, m.artY1);
+        const els = elementsRef.current;
+        if (x1 - x0 < 4 && y1 - y0 < 4) {
+          if (!shiftHeld) setSelectionIds([]);
+          return;
+        }
+        const hit = els.filter(
+          (el) =>
+            el.frame_x < x1 &&
+            el.frame_x + el.frame_w > x0 &&
+            el.frame_y < y1 &&
+            el.frame_y + el.frame_h > y0
+        );
+        const ids = hit.map((h0) => h0.id);
+        if (shiftHeld) {
+          setSelectionIds((prev) => [...new Set([...prev, ...ids])]);
+        } else {
+          setSelectionIds(ids);
+        }
+      }
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    },
+    [previewMode, clientToArtboard, blockId, elements, onChange, onHistoryCheckpoint]
+  );
 
   const cornerHandle =
     "data-resize-handle pointer-events-auto z-30 h-2.5 w-2.5 rounded-[2px] border border-white bg-stone-700 shadow-sm hover:bg-stone-900";
@@ -803,6 +1209,15 @@ export function WireframeEditor({
             <p className="truncate text-sm font-medium text-stone-900">
               {blockName || (pageSurface ? "Untitled page" : "Untitled block")}
             </p>
+            {pageSurface && onOpenExport ? (
+              <button
+                type="button"
+                className="mt-1 max-w-full truncate text-left font-mono text-[10px] text-teal-800 underline decoration-teal-800/40 underline-offset-2 hover:text-teal-950"
+                onClick={onOpenExport}
+              >
+                Layout is included in Export → Cursor &amp; Claude formats
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -917,6 +1332,49 @@ export function WireframeEditor({
             </div>
           ) : null}
 
+          <div className="hidden flex-wrap items-center gap-1 sm:flex" aria-label="Quick add">
+            {QUICK_ADD_TYPES.map((t) => {
+              const { Icon } = ELEMENT_PALETTE[t];
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  title={`Add ${t}`}
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-stone-400 bg-white text-stone-700 shadow-sm hover:bg-stone-100"
+                  onClick={() => quickAdd(t)}
+                >
+                  <Icon className="h-3.5 w-3.5" aria-hidden />
+                  <span className="sr-only">Add {t}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 font-mono text-xs font-medium shadow-sm ${
+              previewMode
+                ? "border-teal-600 bg-teal-700 text-white hover:bg-teal-800"
+                : "border-stone-400 bg-white text-stone-800 hover:bg-stone-50"
+            }`}
+            aria-pressed={previewMode}
+            title={previewMode ? "Exit preview (Esc)" : "Preview without edit chrome"}
+            onClick={() => {
+              setPreviewMode((p) => {
+                const next = !p;
+                if (next) setSelectionIds([]);
+                return next;
+              });
+            }}
+          >
+            {previewMode ? (
+              <EyeOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            ) : (
+              <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            )}
+            <span className="hidden sm:inline">{previewMode ? "Editing" : "Preview"}</span>
+          </button>
+
           <button
             type="button"
             className="inline-flex items-center gap-1.5 rounded-md border border-stone-400 bg-white px-2.5 py-1.5 font-mono text-xs font-medium text-stone-800 shadow-sm hover:bg-stone-50"
@@ -979,17 +1437,60 @@ export function WireframeEditor({
             Fit
           </button>
         </span>
+        {selectionIds.length >= 2 && !previewMode ? (
+          <span className="inline-flex flex-wrap items-center gap-1 border-l border-stone-200 pl-3">
+            <span className="text-stone-400 max-sm:hidden">Align</span>
+            <button
+              type="button"
+              className="rounded border border-stone-300 p-0.5 text-stone-700 hover:bg-stone-100"
+              title="Align left edges"
+              aria-label="Align left edges"
+              onClick={alignLeftEdges}
+            >
+              <AlignHorizontalJustifyStart className="h-3.5 w-3.5" aria-hidden />
+            </button>
+            <button
+              type="button"
+              className="rounded border border-stone-300 p-0.5 text-stone-700 hover:bg-stone-100"
+              title="Align horizontal centers"
+              aria-label="Align horizontal centers"
+              onClick={alignCenterH}
+            >
+              <AlignHorizontalJustifyCenter className="h-3.5 w-3.5" aria-hidden />
+            </button>
+            <button
+              type="button"
+              className="rounded border border-stone-300 p-0.5 text-stone-700 hover:bg-stone-100"
+              title="Align right edges"
+              aria-label="Align right edges"
+              onClick={alignRightEdges}
+            >
+              <AlignHorizontalJustifyEnd className="h-3.5 w-3.5" aria-hidden />
+            </button>
+            <button
+              type="button"
+              className="rounded border border-stone-300 p-0.5 text-stone-700 hover:bg-stone-100"
+              title="Distribute vertically"
+              aria-label="Distribute vertically"
+              onClick={distributeVertical}
+            >
+              <AlignVerticalSpaceBetween className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          </span>
+        ) : null}
         {selectedRow ? (
           <span className="hidden sm:inline">
             <span className="text-stone-400">Selection</span>{" "}
             <span className="tabular-nums text-stone-800">
-              {selectedRow.frame_w}×{selectedRow.frame_h} @ {selectedRow.frame_x},
-              {selectedRow.frame_y}
+              {selectionIds.length > 1
+                ? `${selectionIds.length} elements`
+                : `${selectedRow.frame_w}×${selectedRow.frame_h} @ ${selectedRow.frame_x},${selectedRow.frame_y}`}
             </span>
           </span>
         ) : null}
-        <span className="text-stone-400 max-sm:hidden">
-          Del remove · ⌘D duplicate · ⌘+scroll zoom · drag to move
+        <span className="text-stone-400 max-lg:hidden">
+          A add · H/B/I quick · Esc clear · Alt+click place · Shift+drag add to selection · arrows
+          nudge · Del · ⌘D · ⌘+scroll zoom
         </span>
       </div>
 
@@ -1044,32 +1545,67 @@ export function WireframeEditor({
                 role="presentation"
               >
                 <div
+                  ref={artboardInnerRef}
                   className="relative border-[3px] border-stone-800 bg-white shadow-[4px_4px_0_0_rgba(28,25,23,0.12)]"
-              style={{
-                width: artboardSize.width,
-                height: artboardSize.height,
-                transform: `scale(${zoom})`,
-                transformOrigin: "top left",
-                backgroundImage:
-                  "linear-gradient(to right, rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.04) 1px, transparent 1px)",
-                backgroundSize: `${GRID}px ${GRID}px`,
-              }}
-              role="presentation"
-            >
+                  style={{
+                    width: artboardSize.width,
+                    height: artboardSize.height,
+                    transform: `scale(${zoom})`,
+                    transformOrigin: "top left",
+                    backgroundImage: previewMode
+                      ? undefined
+                      : "linear-gradient(to right, rgba(0,0,0,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.04) 1px, transparent 1px)",
+                    backgroundSize: previewMode ? undefined : `${GRID}px ${GRID}px`,
+                  }}
+                  role="presentation"
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={onArtboardPointerDown}
+                >
+                  {snapGuides.vx != null ? (
+                    <div
+                      className="pointer-events-none absolute bottom-0 top-0 z-[40] w-px bg-teal-500/90"
+                      style={{ left: snapGuides.vx }}
+                      aria-hidden
+                    />
+                  ) : null}
+                  {snapGuides.hy != null ? (
+                    <div
+                      className="pointer-events-none absolute left-0 right-0 z-[40] h-px bg-teal-500/90"
+                      style={{ top: snapGuides.hy }}
+                      aria-hidden
+                    />
+                  ) : null}
+                  {marquee ? (
+                    <div
+                      className="pointer-events-none absolute z-[35] border border-dashed border-teal-600 bg-teal-500/10"
+                      style={{
+                        left: Math.min(marquee.artX0, marquee.artX1),
+                        top: Math.min(marquee.artY0, marquee.artY1),
+                        width: Math.abs(marquee.artX1 - marquee.artX0),
+                        height: Math.abs(marquee.artY1 - marquee.artY0),
+                      }}
+                      aria-hidden
+                    />
+                  ) : null}
               {elements.map((row) => {
-                const selected = row.id === selectedId;
+                const selected = selectionIds.includes(row.id);
                 return (
                   <div
                     key={row.id}
+                    data-wire-el
                     title={
-                      selected
-                        ? "Drag to move · use handles to resize"
-                        : "Click to select · drag to move"
+                      previewMode
+                        ? undefined
+                        : selected
+                          ? "Drag to move · use handles to resize"
+                          : "Click to select · Shift+click add · drag to move"
                     }
                     className={`group absolute flex flex-col overflow-visible transition-shadow duration-150 ${
-                      selected
-                        ? "z-10 cursor-grab shadow-[3px_3px_0_0_rgba(87,83,78,0.15)] ring-2 ring-stone-800 ring-offset-2 ring-offset-white active:cursor-grabbing"
-                        : "z-0 cursor-grab ring-2 ring-stone-400 ring-offset-2 ring-offset-white hover:ring-stone-600 active:cursor-grabbing"
+                      previewMode
+                        ? "z-0 cursor-default shadow-none ring-0"
+                        : selected
+                          ? "z-10 cursor-grab shadow-[3px_3px_0_0_rgba(87,83,78,0.15)] ring-2 ring-stone-800 ring-offset-2 ring-offset-white active:cursor-grabbing"
+                          : "z-0 cursor-grab ring-2 ring-stone-400 ring-offset-2 ring-offset-white hover:ring-stone-600 active:cursor-grabbing"
                     }`}
                     style={{
                       left: row.frame_x,
@@ -1084,7 +1620,12 @@ export function WireframeEditor({
                     role="presentation"
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSelectedId(row.id);
+                      if (previewMode) return;
+                      if (e.shiftKey) {
+                        setSelectionIds((prev) => toggleSelectedId(prev, row.id));
+                      } else {
+                        setSelectionIds([row.id]);
+                      }
                     }}
                   >
                     <div
@@ -1107,6 +1648,7 @@ export function WireframeEditor({
                     <div
                       className="relative flex min-h-0 flex-1 flex-col overflow-hidden p-1"
                       onPointerDown={(e) => {
+                        if (previewMode) return;
                         const t = e.target as HTMLElement;
                         if (
                           t.closest(
@@ -1117,7 +1659,7 @@ export function WireframeEditor({
                         startMove(e, row);
                       }}
                     >
-                      {!selected ? (
+                      {!selected || previewMode ? (
                         <span
                           className="pointer-events-none absolute bottom-1 left-1 z-10 rounded border border-stone-300 bg-white/95 px-1 py-px font-mono text-[9px] font-semibold uppercase tracking-wide text-stone-500"
                           aria-hidden
@@ -1129,13 +1671,14 @@ export function WireframeEditor({
                       <div className="min-h-0 flex-1 pt-0.5">
                         <WireframeElementVisual
                           row={row}
+                          readOnly={previewMode}
                           onLabelChange={(label) => patchRow(row.id, { label })}
                           onLabelFocus={onHistoryCheckpoint}
                         />
                       </div>
                     </div>
 
-                    {selected ? (
+                    {selected && !previewMode && selectionIds.length === 1 ? (
                       <>
                         <div
                           data-wire-toolbar

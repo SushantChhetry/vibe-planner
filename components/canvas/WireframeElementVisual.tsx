@@ -10,12 +10,16 @@ export function WireframeElementVisual({
   row,
   onLabelChange,
   onLabelFocus,
+  readOnly = false,
 }: {
   row: WireframeElementRow;
   onLabelChange: (v: string) => void;
   onLabelFocus?: () => void;
+  /** Preview mode: show copy without editing controls. */
+  readOnly?: boolean;
 }) {
   const v = row.label;
+  const ro = readOnly ? ({ readOnly: true, tabIndex: -1 } as const) : {};
 
   switch (row.element_type) {
     case "Section":
@@ -31,6 +35,97 @@ export function WireframeElementVisual({
             value={v}
             onChange={(e) => onLabelChange(e.target.value)}
             onFocus={onLabelFocus}
+            {...ro}
+          />
+        </div>
+      );
+
+    case "Navbar":
+      return (
+        <div className="flex h-full w-full flex-col border-2 border-dashed border-indigo-500/75 bg-indigo-50/35 p-2">
+          <span className="shrink-0 font-mono text-[10px] font-medium uppercase tracking-wider text-indigo-800/90">
+            Navbar
+          </span>
+          <textarea
+            data-no-drag
+            className={`min-h-0 flex-1 resize-none bg-transparent ${mono} text-stone-700 placeholder:text-stone-400 focus:outline-none focus:ring-0`}
+            placeholder="Logo · links · search · actions"
+            value={v}
+            onChange={(e) => onLabelChange(e.target.value)}
+            onFocus={onLabelFocus}
+            {...ro}
+          />
+        </div>
+      );
+
+    case "Hero":
+      return (
+        <div className="flex h-full w-full flex-col border-2 border-dashed border-amber-600/70 bg-amber-50/40 p-2">
+          <span className="shrink-0 font-mono text-[10px] font-medium uppercase tracking-wider text-amber-900/85">
+            Hero
+          </span>
+          <textarea
+            data-no-drag
+            className={`min-h-0 flex-1 resize-none bg-transparent ${mono} text-stone-700 placeholder:text-stone-400 focus:outline-none focus:ring-0`}
+            placeholder="Headline · subcopy · primary CTA · hero visual"
+            value={v}
+            onChange={(e) => onLabelChange(e.target.value)}
+            onFocus={onLabelFocus}
+            {...ro}
+          />
+        </div>
+      );
+
+    case "Sidebar":
+      return (
+        <div className="flex h-full w-full flex-col border-2 border-dashed border-sky-600/70 bg-sky-50/35 p-2">
+          <span className="shrink-0 font-mono text-[10px] font-medium uppercase tracking-wider text-sky-900/85">
+            Sidebar
+          </span>
+          <textarea
+            data-no-drag
+            className={`min-h-0 flex-1 resize-none bg-transparent ${mono} text-stone-700 placeholder:text-stone-400 focus:outline-none focus:ring-0`}
+            placeholder="In-page nav · filters · secondary tools"
+            value={v}
+            onChange={(e) => onLabelChange(e.target.value)}
+            onFocus={onLabelFocus}
+            {...ro}
+          />
+        </div>
+      );
+
+    case "Footer":
+      return (
+        <div className="flex h-full w-full flex-col border-2 border-dashed border-violet-600/70 bg-violet-50/35 p-2">
+          <span className="shrink-0 font-mono text-[10px] font-medium uppercase tracking-wider text-violet-900/85">
+            Footer
+          </span>
+          <textarea
+            data-no-drag
+            className={`min-h-0 flex-1 resize-none bg-transparent ${mono} text-stone-700 placeholder:text-stone-400 focus:outline-none focus:ring-0`}
+            placeholder="Sitemap · legal · newsletter · social"
+            value={v}
+            onChange={(e) => onLabelChange(e.target.value)}
+            onFocus={onLabelFocus}
+            {...ro}
+          />
+        </div>
+      );
+
+    case "Main content":
+      return (
+        <div className="flex h-full w-full flex-col border-2 border-dashed border-teal-700/65 bg-teal-50/30 p-2">
+          <span className="shrink-0 font-mono text-[10px] font-medium uppercase tracking-wider text-teal-900/85">
+            Main content
+          </span>
+          <textarea
+            data-no-drag
+            className={`min-h-0 flex-1 resize-none bg-transparent ${mono} text-stone-700 placeholder:text-stone-400 focus:outline-none focus:ring-0`}
+            placeholder="Primary column · feed · article · dashboard body"
+            value={v}
+            onChange={(e) => onLabelChange(e.target.value)}
+            onFocus={onLabelFocus}
+            {...ro}
           />
         </div>
       );
@@ -45,6 +140,7 @@ export function WireframeElementVisual({
             value={v}
             onChange={(e) => onLabelChange(e.target.value)}
             onFocus={onLabelFocus}
+            {...ro}
           />
         </div>
       );
@@ -58,6 +154,7 @@ export function WireframeElementVisual({
           value={v}
           onChange={(e) => onLabelChange(e.target.value)}
           onFocus={onLabelFocus}
+          {...ro}
         />
       );
 
@@ -77,6 +174,7 @@ export function WireframeElementVisual({
             value={v}
             onChange={(e) => onLabelChange(e.target.value)}
             onFocus={onLabelFocus}
+            {...ro}
           />
         </div>
       );
@@ -92,6 +190,7 @@ export function WireframeElementVisual({
               value={v}
               onChange={(e) => onLabelChange(e.target.value)}
               onFocus={onLabelFocus}
+              {...ro}
             />
           </div>
         </div>
@@ -108,6 +207,7 @@ export function WireframeElementVisual({
               value={v}
               onChange={(e) => onLabelChange(e.target.value)}
               onFocus={onLabelFocus}
+              {...ro}
             />
           </div>
         </div>
@@ -129,6 +229,7 @@ export function WireframeElementVisual({
               value={v}
               onChange={(e) => onLabelChange(e.target.value)}
               onFocus={onLabelFocus}
+              {...ro}
             />
           </div>
         </div>
@@ -144,6 +245,7 @@ export function WireframeElementVisual({
             value={v}
             onChange={(e) => onLabelChange(e.target.value)}
             onFocus={onLabelFocus}
+            {...ro}
           />
           <div className="flex min-h-0 flex-1 flex-col justify-center gap-2.5">
             {[88, 72, 60].map((pct, i) => (
@@ -186,6 +288,7 @@ export function WireframeElementVisual({
             value={v}
             onChange={(e) => onLabelChange(e.target.value)}
             onFocus={onLabelFocus}
+            {...ro}
           />
         </div>
       );

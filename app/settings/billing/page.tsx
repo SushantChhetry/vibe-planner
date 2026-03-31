@@ -1,26 +1,21 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getSubscriptionState } from "@/lib/subscription";
 import { BillingActions } from "@/components/billing/BillingActions";
+import { requireProfileId } from "@/lib/auth/profile";
 
 export default async function BillingSettingsPage({
   searchParams,
 }: {
-  searchParams?: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const profileId = await requireProfileId();
+  const supabase = await createClient();
 
-  if (!user) {
-    redirect("/login?next=/settings/billing");
-  }
-
-  const { isPro, stripeCustomerId } = await getSubscriptionState(supabase, user.id);
-  const checkout = typeof searchParams?.checkout === "string" ? searchParams.checkout : undefined;
+  const { isPro, stripeCustomerId } = await getSubscriptionState(supabase, profileId);
+  const sp = await searchParams;
+  const checkout = typeof sp.checkout === "string" ? sp.checkout : undefined;
 
   return (
     <div className="min-h-screen bg-[var(--background)]">

@@ -25,6 +25,11 @@ export type BlockType = (typeof BLOCK_TYPES)[number];
 export const WIRE_ELEMENT_TYPES = [
   "Heading",
   "Section",
+  "Navbar",
+  "Hero",
+  "Sidebar",
+  "Footer",
+  "Main content",
   "Body text",
   "Image",
   "Primary button",

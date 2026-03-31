@@ -2,8 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ExportFormat, ExportSnapshot } from "@/lib/types";
-import { Check, Copy, Download, FileDown, X } from "lucide-react";
-import { buildExportContent, downloadFilename } from "@/lib/export";
+import { Check, ChevronDown, Copy, Download, FileDown, Loader2, X } from "lucide-react";
+import {
+  buildExportContent,
+  buildWireframeExcerptForPage,
+  downloadFilename,
+  filterSnapshotToPage,
+  standaloneAgentInstruction,
+} from "@/lib/export";
 import { Button } from "@/components/ui/Button";
 
 const FORMATS: { value: ExportFormat; label: string }[] = [
@@ -24,25 +30,43 @@ export function ExportDrawer({
   open,
   onClose,
   snapshot,
+  activePageId = null,
 }: {
   open: boolean;
   onClose: () => void;
   snapshot: ExportSnapshot | null;
+  /** When set (e.g. current design page), enables this-page preview and wireframe excerpt. */
+  activePageId?: string | null;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [format, setFormat] = useState<ExportFormat>("markdown");
   const [copied, setCopied] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [exportScope, setExportScope] = useState<"full" | "page">("full");
+  const [copiedAgent, setCopiedAgent] = useState(false);
+  const [copiedWire, setCopiedWire] = useState(false);
+
+  const pageSlice = useMemo(() => {
+    if (!snapshot || !activePageId) return null;
+    return filterSnapshotToPage(snapshot, activePageId);
+  }, [snapshot, activePageId]);
+
+  const effectiveSnapshot = useMemo(() => {
+    if (!snapshot) return null;
+    if (exportScope === "page" && pageSlice) return pageSlice;
+    return snapshot;
+  }, [snapshot, exportScope, pageSlice]);
 
   const content = useMemo(() => {
-    if (!snapshot) return "";
-    return buildExportContent(snapshot, format);
-  }, [snapshot, format]);
+    if (!effectiveSnapshot) return "";
+    return buildExportContent(effectiveSnapshot, format);
+  }, [effectiveSnapshot, format]);
 
   const suggestedFilename = useMemo(() => {
-    if (!snapshot) return "";
-    return downloadFilename(snapshot.projectName, format);
-  }, [snapshot, format]);
+    if (!effectiveSnapshot) return "";
+    return downloadFilename(effectiveSnapshot.projectName, format);
+  }, [effectiveSnapshot, format]);
 
   const previewStats = useMemo(() => {
     if (!snapshot) return null;
@@ -51,6 +75,11 @@ export function ExportDrawer({
     return { lines, chars };
   }, [snapshot, content]);
 
+  const wireframeExcerpt = useMemo(() => {
+    if (!snapshot || !activePageId) return "";
+    return buildWireframeExcerptForPage(snapshot, activePageId);
+  }, [snapshot, activePageId]);
+
   useEffect(() => {
     const d = dialogRef.current;
     if (!d) return;
@@ -58,6 +87,14 @@ export function ExportDrawer({
       d.showModal();
     } else {
       d.close();
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      setExportScope("full");
+      setCopiedAgent(false);
+      setCopiedWire(false);
     }
   }, [open]);
 
@@ -73,12 +110,15 @@ export function ExportDrawer({
   }, [onClose]);
 
   useEffect(() => {
-    if (!open) setCopied(false);
+    if (!open) {
+      setCopied(false);
+      setCopying(false);
+    }
   }, [open]);
 
   useEffect(() => {
     setCopied(false);
-  }, [format]);
+  }, [format, exportScope]);
 
   useEffect(() => {
     return () => {
@@ -87,21 +127,24 @@ export function ExportDrawer({
   }, []);
 
   async function copy() {
-    if (!snapshot) return;
+    if (!effectiveSnapshot || copying) return;
+    setCopying(true);
     try {
-      await navigator.clipboard.writeText(buildExportContent(snapshot, format));
+      await navigator.clipboard.writeText(buildExportContent(effectiveSnapshot, format));
       setCopied(true);
       if (copyResetRef.current) clearTimeout(copyResetRef.current);
       copyResetRef.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       setCopied(false);
+    } finally {
+      setCopying(false);
     }
   }
 
   function download() {
-    if (!snapshot) return;
-    const text = buildExportContent(snapshot, format);
-    const name = downloadFilename(snapshot.projectName, format);
+    if (!effectiveSnapshot) return;
+    const text = buildExportContent(effectiveSnapshot, format);
+    const name = downloadFilename(effectiveSnapshot.projectName, format);
     const mime =
       format === "json" ? "application/json" : "text/markdown;charset=utf-8";
     const blob = new Blob([text], { type: mime });
@@ -113,7 +156,29 @@ export function ExportDrawer({
     URL.revokeObjectURL(url);
   }
 
+  async function copyAgentInstruction() {
+    try {
+      await navigator.clipboard.writeText(standaloneAgentInstruction());
+      setCopiedAgent(true);
+      window.setTimeout(() => setCopiedAgent(false), 2000);
+    } catch {
+      setCopiedAgent(false);
+    }
+  }
+
+  async function copyWireframePage() {
+    if (!wireframeExcerpt) return;
+    try {
+      await navigator.clipboard.writeText(wireframeExcerpt);
+      setCopiedWire(true);
+      window.setTimeout(() => setCopiedWire(false), 2000);
+    } catch {
+      setCopiedWire(false);
+    }
+  }
+
   const hasExport = Boolean(snapshot);
+  const showPageScope = Boolean(activePageId && pageSlice);
 
   return (
     <dialog
@@ -152,12 +217,44 @@ export function ExportDrawer({
               onClick={onClose}
               aria-label="Close"
             >
-              <X className="h-5 w-5" aria-hidden />
+              <X className="h-5 w-5" />
             </button>
           </div>
         </div>
 
         <div className="shrink-0 space-y-3 border-b border-stone-200/80 bg-white/60 px-4 py-4 backdrop-blur-sm">
+          {showPageScope ? (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                Scope
+              </p>
+              <div className="mt-2 flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setExportScope("full")}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 ${
+                    exportScope === "full"
+                      ? "bg-stone-900 text-white shadow-sm"
+                      : "bg-stone-100 text-stone-700 hover:bg-stone-200"
+                  }`}
+                >
+                  Full project
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExportScope("page")}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:ring-offset-2 ${
+                    exportScope === "page"
+                      ? "bg-stone-900 text-white shadow-sm"
+                      : "bg-stone-100 text-stone-700 hover:bg-stone-200"
+                  }`}
+                >
+                  This page only
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-stone-500">
               Format
@@ -185,22 +282,87 @@ export function ExportDrawer({
               {FORMAT_HINTS[format]}
             </p>
           </div>
+
+          {snapshot && activePageId && wireframeExcerpt ? (
+            <details className="group rounded-lg border border-stone-200/90 bg-stone-50/80">
+              <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 font-mono text-[11px] font-medium text-stone-700 [&::-webkit-details-marker]:hidden">
+                <ChevronDown className="h-3.5 w-3.5 shrink-0 text-stone-500 transition-transform group-open:rotate-180" />
+                This page&apos;s wireframe in export
+              </summary>
+              <div className="max-h-40 overflow-auto border-t border-stone-200/80 px-3 py-2">
+                <pre className="whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-stone-700">
+                  {wireframeExcerpt}
+                </pre>
+              </div>
+            </details>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="!h-8 !px-2.5 !text-xs"
+              onClick={() => void copyAgentInstruction()}
+            >
+              {copiedAgent ? (
+                <>
+                  <Check className="h-3.5 w-3.5 shrink-0" />
+                  Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5 shrink-0" />
+                  Agent instruction
+                </>
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="!h-8 !px-2.5 !text-xs"
+              disabled={!activePageId || !wireframeExcerpt}
+              onClick={() => void copyWireframePage()}
+            >
+              {copiedWire ? (
+                <>
+                  <Check className="h-3.5 w-3.5 shrink-0" />
+                  Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5 shrink-0" />
+                  Wireframe (page)
+                </>
+              )}
+            </Button>
+          </div>
         </div>
 
         <div className="shrink-0 flex gap-2 border-b border-stone-200/80 bg-white/40 px-4 py-3">
           <Button
             type="button"
             variant="outline"
-            disabled={!hasExport}
+            disabled={!hasExport || copying || !effectiveSnapshot}
             className={`flex-1 !gap-2 transition-colors disabled:opacity-45 ${
               copied
                 ? "!border-emerald-600 !bg-emerald-600 !text-white hover:!bg-emerald-700 disabled:!opacity-100"
                 : ""
             }`}
             onClick={() => void copy()}
-            aria-label={copied ? "Copied to clipboard" : "Copy export to clipboard"}
+            aria-label={
+              copying
+                ? "Copying to clipboard"
+                : copied
+                  ? "Copied to clipboard"
+                  : "Copy export to clipboard"
+            }
           >
-            {copied ? (
+            {copying ? (
+              <>
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden />
+                Copying…
+              </>
+            ) : copied ? (
               <>
                 <Check className="h-4 w-4 shrink-0" aria-hidden />
                 Copied
@@ -217,7 +379,7 @@ export function ExportDrawer({
             variant="primary"
             className="flex-1 !gap-2"
             onClick={download}
-            disabled={!hasExport}
+            disabled={!hasExport || !effectiveSnapshot}
           >
             <Download className="h-4 w-4 shrink-0" aria-hidden />
             Download

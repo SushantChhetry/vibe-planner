@@ -29,7 +29,13 @@ const AI_TAIL =
   "\n\n---\n\n**Instruction for the coding agent:** Implement this structure exactly. " +
   "Preserve page names, block types, navigation flows between blocks, and the intent described in each block. " +
   "Treat each block wireframe as a spatial low-fidelity mock: element positions and box sizes are intentional layout hints. " +
+  "Wireframe coordinates use a top-left origin on each page’s artboard; preserve reading order and approximate proportions when building UI. " +
   "Do not invent major screens or flows that are not represented here. Ask only if something is genuinely ambiguous.";
+
+/** Clipboard-friendly block for coding agents (same narrative as export footers). */
+export function standaloneAgentInstruction(): string {
+  return AI_TAIL.replace(/^\n+/, "").trim();
+}
 
 function blockNameLookup(blocks: { id: string; name: string }[]) {
   const m = new Map(blocks.map((b) => [b.id, b.name]));
@@ -39,6 +45,58 @@ function blockNameLookup(blocks: { id: string; name: string }[]) {
 function pageIdNameLookup(pages: { id: string; name: string }[]) {
   const m = new Map(pages.map((p) => [p.id, p.name]));
   return (id: string) => m.get(id) ?? id;
+}
+
+/** Single-page slice of a snapshot for “this page only” export preview. */
+export function filterSnapshotToPage(
+  snapshot: ExportSnapshot,
+  pageId: string
+): ExportSnapshot | null {
+  const page = snapshot.pages.find((p) => p.id === pageId);
+  if (!page) return null;
+  return {
+    projectName: snapshot.projectName,
+    pages: [page],
+    pageNavigation: snapshot.pageNavigation,
+  };
+}
+
+/** Human-readable wireframe lines for one page (for export drawer excerpt and copy). */
+export function buildWireframeExcerptForPage(
+  snapshot: ExportSnapshot,
+  pageId: string
+): string {
+  const page = snapshot.pages.find((p) => p.id === pageId);
+  if (!page) return "";
+  const pageName = pageIdNameLookup(snapshot.pages);
+  const lines: string[] = [];
+  const blocks = sortBlocks(page.blocks);
+  const names = blockNameLookup(page.blocks);
+  let any = false;
+  for (const b of blocks) {
+    if (!b.wireframe.length) continue;
+    any = true;
+    lines.push(`**${b.name}** (${b.type})`);
+    for (const w of b.wireframe) {
+      const lbl = w.label ? `: ${w.label}` : "";
+      const meta = wireframeMetaNotes(w, pageName);
+      lines.push(`  - ${w.element_type}${lbl}${wireframeRect(w)}${meta}`);
+    }
+    lines.push("");
+  }
+  if (page.edges.length) {
+    lines.push("### In-page navigation");
+    lines.push("");
+    for (const e of page.edges) {
+      const label = e.label ? ` — _${e.label}_` : "";
+      lines.push(`- ${names(e.source_block_id)} → ${names(e.target_block_id)}${label}`);
+    }
+    lines.push("");
+  }
+  if (!any && !page.edges.length) {
+    return "_No wireframe elements or block links on this page._";
+  }
+  return lines.join("\n").trimEnd();
 }
 
 function wireframeMetaNotes(
@@ -161,7 +219,7 @@ export function buildExportContent(snapshot: ExportSnapshot, format: ExportForma
       "- Follow this structure exactly when generating or modifying code."
     );
     lines.push(
-      "- Wireframes use rough bounding boxes on a canvas; preserve relative placement and proportions when building UI."
+      "- Wireframes use rough bounding boxes on a page-local artboard (top-left origin); preserve relative placement and proportions when building UI."
     );
     lines.push(
       "- Do not add major screens or user flows unless they extend an existing block clearly."

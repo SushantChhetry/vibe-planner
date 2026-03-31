@@ -1,5 +1,6 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireProfileId } from "@/lib/auth/profile";
 import { CanvasEditor } from "@/components/canvas/CanvasEditor";
 import { getSubscriptionState } from "@/lib/subscription";
 import type {
@@ -93,16 +94,12 @@ type PageNavPayload = {
 export default async function CanvasProjectPage({
   params,
 }: {
-  params: { projectId: string };
+  params: Promise<{ projectId: string }>;
 }) {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    redirect(`/login?next=/canvas/${params.projectId}`);
-  }
-  const { isPro } = await getSubscriptionState(supabase, user.id);
+  const { projectId } = await params;
+  const profileId = await requireProfileId();
+  const supabase = await createClient();
+  const { isPro } = await getSubscriptionState(supabase, profileId);
 
   const { data, error } = await supabase
     .from("projects")
@@ -123,7 +120,7 @@ export default async function CanvasProjectPage({
       )
     `
     )
-    .eq("id", params.projectId)
+    .eq("id", projectId)
     .single();
 
   if (error || !data) {
@@ -133,45 +130,26 @@ export default async function CanvasProjectPage({
   const rawPagesFirst = (data.pages ?? []) as PagePayload[];
   for (const p of rawPagesFirst) {
     if (!p.blocks?.length) {
-      const { error: insErr } = await supabase.from("blocks").insert({
-        page_id: p.id,
-        type: "Custom",
-        name: "Page layout",
-        description: "",
-        position_x: 0,
-        position_y: 0,
-      });
-      if (insErr) {
+      const { data: blk, error: insErr } = await supabase
+        .from("blocks")
+        .insert({
+          page_id: p.id,
+          type: "Custom",
+          name: "Page layout",
+          description: "",
+          position_x: 0,
+          position_y: 0,
+        })
+        .select("id, page_id, type, name, description, position_x, position_y, created_at")
+        .single();
+      if (insErr || !blk) {
         notFound();
       }
+      p.blocks = [{ ...blk, wireframe_elements: [] }];
     }
   }
 
-  let projectData = data;
-  if (rawPagesFirst.some((p) => !p.blocks?.length)) {
-    const refetch = await supabase
-      .from("projects")
-      .select(
-        `
-      id,
-      name,
-      page_navigation_edges ( id, project_id, source_page_id, target_page_id, label ),
-      pages (
-        id,
-        name,
-        order,
-        description,
-        sitemap_x,
-        sitemap_y,
-        blocks ( *, wireframe_elements ( * ) ),
-        edges ( * )
-      )
-    `
-      )
-      .eq("id", params.projectId)
-      .single();
-    if (refetch.data) projectData = refetch.data;
-  }
+  const projectData = data;
 
   const navRaw = (projectData as { page_navigation_edges?: PageNavPayload[] | null })
     .page_navigation_edges;

@@ -14,16 +14,18 @@ export function AddPageModal({
   title?: string;
   confirmLabel?: string;
   onClose: () => void;
-  onCreate: (name: string, description: string) => void;
+  onCreate: (name: string, description: string) => void | Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
     setName("");
     setDescription("");
+    setSubmitting(false);
     const t = window.setTimeout(() => nameInputRef.current?.focus(), 50);
     return () => window.clearTimeout(t);
   }, [open]);
@@ -45,7 +47,9 @@ export function AddPageModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="add-page-title"
+      aria-busy={submitting}
       onMouseDown={(e) => {
+        if (submitting) return;
         if (e.target === e.currentTarget) onClose();
       }}
     >
@@ -64,8 +68,9 @@ export function AddPageModal({
             <span className="text-xs font-medium text-stone-500">Page name</span>
             <input
               ref={nameInputRef}
-              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-500"
+              className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-500 disabled:bg-stone-50 disabled:text-stone-500"
               value={name}
+              disabled={submitting}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Pricing, Dashboard, Sign in"
             />
@@ -73,8 +78,9 @@ export function AddPageModal({
           <label className="block">
             <span className="text-xs font-medium text-stone-500">What this page is for</span>
             <textarea
-              className="mt-1 w-full resize-y rounded-md border border-stone-300 px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-500"
+              className="mt-1 w-full resize-y rounded-md border border-stone-300 px-3 py-2 text-sm text-stone-900 outline-none focus:border-stone-500 disabled:bg-stone-50 disabled:text-stone-500"
               value={description}
+              disabled={submitting}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Purpose, main content, who lands here…"
               rows={4}
@@ -82,18 +88,28 @@ export function AddPageModal({
           </label>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <Button type="button" variant="ghost" className="!text-stone-700" onClick={onClose}>
+          <Button
+            type="button"
+            variant="ghost"
+            className="!text-stone-700"
+            disabled={submitting}
+            onClick={onClose}
+          >
             Cancel
           </Button>
           <Button
             type="button"
+            disabled={submitting}
             onClick={() => {
               const n = name.trim() || "Untitled page";
-              onCreate(n, description.trim());
-              onClose();
+              setSubmitting(true);
+              void Promise.resolve(onCreate(n, description.trim()))
+                .then(() => onClose())
+                .catch(() => {})
+                .finally(() => setSubmitting(false));
             }}
           >
-            {confirmLabel}
+            {submitting ? "Creating…" : confirmLabel}
           </Button>
         </div>
       </div>

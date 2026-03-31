@@ -229,7 +229,7 @@ otp_expiry = 3600
 # Magic link (passwordless sign-in) — copy HTML to Dashboard → Auth → Templates for hosted projects
 [auth.email.template.magic_link]
 subject = "Sign in to PuMi"
-content_path = "./templates/magic_link.html"
+content_path = "./supabase/templates/magic_link.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]

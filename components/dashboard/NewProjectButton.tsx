@@ -1,11 +1,22 @@
 "use client";
 
 import { useState } from "react";
+import { useFormStatus } from "react-dom";
 import { Plus } from "lucide-react";
 import { createProjectAndRedirect } from "@/app/actions/projects";
 import { Button } from "@/components/ui/Button";
 import { PremiumModal } from "@/components/billing/PremiumModal";
 import { PremiumBadge } from "@/components/billing/PremiumBadge";
+
+function NewProjectSubmit() {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" variant="primary" className="!gap-2" disabled={pending}>
+      <Plus className="h-4 w-4 shrink-0" aria-hidden />
+      {pending ? "Creating…" : "New project"}
+    </Button>
+  );
+}
 
 export function NewProjectButton({
   isPro,
@@ -42,10 +53,7 @@ export function NewProjectButton({
 
   return (
     <form action={createProjectAndRedirect}>
-      <Button type="submit" variant="primary" className="!gap-2">
-        <Plus className="h-4 w-4 shrink-0" aria-hidden />
-        New project
-      </Button>
+      <NewProjectSubmit />
     </form>
   );
 }

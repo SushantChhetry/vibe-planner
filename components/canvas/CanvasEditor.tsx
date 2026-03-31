@@ -56,15 +56,13 @@ import {
   makeHostCanvasNode,
   emptyPageDraft,
 } from "@/lib/page-wireframe-host";
-import { createClient } from "@/lib/supabase";
+import { useClerkSupabase } from "@/lib/supabase";
 import Link from "next/link";
 import { CircleHelp } from "lucide-react";
 import { TEMPLATES, flattenTemplateToWireRows } from "@/lib/templates";
 
 type FlowData = BlockNodeData | PageNodeData;
 type FlowNode = Node<FlowData>;
-
-const nodeTypes = { page: PageNode };
 
 function buildSitemapNodes(bundle: ProjectBundle): Node<PageNodeData>[] {
   const sorted = [...bundle.pages].sort((a, b) => a.order - b.order);
@@ -94,6 +92,7 @@ function CanvasWorkspace({
   bundle: ProjectBundle;
   isPro: boolean;
 }) {
+  const supabase = useClerkSupabase();
   const sortedPages = useMemo(
     () => [...bundle.pages].sort((a, b) => a.order - b.order),
     [bundle.pages]
@@ -190,6 +189,16 @@ function CanvasWorkspace({
     if (stored) setAppearance(stored);
   }, [isPro]);
 
+  /** Stable refs for React Flow (#002 — avoid new nodeTypes / edgeOptions objects each render). */
+  const flowNodeTypes = useMemo(() => ({ page: PageNode }), []);
+  const defaultEdgeOptions = useMemo(
+    () => ({
+      style: { stroke: appearance.edge, strokeWidth: 1.5 },
+    }),
+    [appearance.edge]
+  );
+  const flowProOptions = useMemo(() => ({ hideAttribution: true }), []);
+
   const rfInstance = useRef<ReactFlowInstance | null>(null);
   const wireframeRef = useRef(initialWireMap);
   wireframeRef.current = wireframeByBlockId;
@@ -266,18 +275,19 @@ function CanvasWorkspace({
   useEffect(() => {
     const c = pageBlockCacheRef.current;
     if (!c) return;
-    const allIds = new Set<string>();
+    const draftBlockIds = new Set<string>();
     for (const draft of Object.values(c)) {
-      for (const n of draft.nodes) allIds.add(n.id);
+      for (const n of draft.nodes) draftBlockIds.add(n.id);
     }
+    /** Host block ids for every page — always keep wireframe state for these even if a draft is momentarily empty. */
+    const hostBlockIds = new Set(Object.values(pageHostBlockRef.current));
     setWireframeByBlockId((prev) => {
       let changed = false;
       const next = { ...prev };
       for (const k of Object.keys(next)) {
-        if (!allIds.has(k)) {
-          delete next[k];
-          changed = true;
-        }
+        if (draftBlockIds.has(k) || hostBlockIds.has(k)) continue;
+        delete next[k];
+        changed = true;
       }
       return changed ? next : prev;
     });
@@ -312,6 +322,58 @@ function CanvasWorkspace({
     []
   );
 
+  /** New projects (or rare load races) may lack a host block in the ref — wireframe would render nothing without this. */
+  const ensureHostBlockForPage = useCallback(
+    async (pageId: string): Promise<string | null> => {
+      const hit = pageHostBlockRef.current[pageId];
+      if (hit) return hit;
+
+      const { data: rows, error: selErr } = await supabase
+        .from("blocks")
+        .select("id, created_at")
+        .eq("page_id", pageId)
+        .order("created_at", { ascending: true });
+
+      if (selErr) {
+        console.error("[canvas] ensureHostBlockForPage select:", selErr);
+        return null;
+      }
+
+      let hostId = rows?.[0]?.id ?? null;
+
+      if (!hostId) {
+        const { data: ins, error: insErr } = await supabase
+          .from("blocks")
+          .insert({
+            page_id: pageId,
+            type: "Custom",
+            name: "Page layout",
+            description: "",
+            position_x: 0,
+            position_y: 0,
+          })
+          .select("id")
+          .single();
+        if (insErr || !ins) {
+          console.error("[canvas] ensureHostBlockForPage insert:", insErr);
+          return null;
+        }
+        hostId = ins.id as string;
+      }
+
+      pageHostBlockRef.current[pageId] = hostId;
+      setWireframeByBlockId((prev) =>
+        prev[hostId] !== undefined ? prev : { ...prev, [hostId]: [] }
+      );
+      const cache = pageBlockCacheRef.current;
+      if (cache && cache[pageId] === undefined) {
+        cache[pageId] = emptyPageDraft(hostId);
+      }
+      return hostId;
+    },
+    [supabase, setWireframeByBlockId]
+  );
+
   const selectTabFixed = useCallback(
     async (next: string) => {
       if (next === activeTab) return;
@@ -333,15 +395,36 @@ function CanvasWorkspace({
         return;
       }
       const c = pageBlockCacheRef.current;
-      const hid = pageHostBlockRef.current[next];
-      const draft =
-        c?.[next] ?? (hid ? emptyPageDraft(hid) : { nodes: [] as Node<BlockNodeData>[], edges: [] as Edge[] });
+      let hid: string | null = pageHostBlockRef.current[next] ?? null;
+      if (!hid) {
+        hid = await ensureHostBlockForPage(next);
+      }
+      if (!hid) {
+        console.error("[canvas] No host block for page; staying on current tab:", next);
+        return;
+      }
+      let draft =
+        c?.[next] ?? emptyPageDraft(hid);
+      if (!draft.nodes.length || !draft.nodes.some((n) => n.id === hid)) {
+        draft = emptyPageDraft(hid);
+        if (c) c[next] = draft;
+      }
       setNodes(cloneNodes(draft.nodes) as FlowNode[]);
       setEdges(cloneEdges(draft.edges));
       setActiveTab(next);
       syncBaselineForTab(next, cloneNodes(draft.nodes) as FlowNode[], cloneEdges(draft.edges));
     },
-    [activeTab, flush, clearHistory, nodes, edges, setNodes, setEdges, syncBaselineForTab]
+    [
+      activeTab,
+      flush,
+      clearHistory,
+      nodes,
+      edges,
+      setNodes,
+      setEdges,
+      syncBaselineForTab,
+      ensureHostBlockForPage,
+    ]
   );
 
   const patchPageMeta = useCallback(
@@ -365,7 +448,6 @@ function CanvasWorkspace({
   const removePage = useCallback(
     async (pageId: string) => {
       await flush();
-      const supabase = createClient();
       const hid = pageHostBlockRef.current[pageId];
       const blockIds = hid ? [hid] : [];
       const { error } = await supabase.from("pages").delete().eq("id", pageId);
@@ -401,7 +483,7 @@ function CanvasWorkspace({
       }
       clearHistory();
     },
-    [flush, activeTab, setNodes, setEdges, clearHistory, syncBaselineForTab]
+    [flush, activeTab, setNodes, setEdges, clearHistory, syncBaselineForTab, supabase]
   );
 
   useEffect(() => {
@@ -505,7 +587,6 @@ function CanvasWorkspace({
   const confirmAddPage = useCallback(
     async (name: string, description: string) => {
       await flush();
-      const supabase = createClient();
       const maxOrder =
         pagesMeta.length === 0 ? -1 : Math.max(...pagesMeta.map((p) => p.order));
       const pos = pendingAddFlowRef.current;
@@ -570,7 +651,7 @@ function CanvasWorkspace({
       }
       clearHistory();
     },
-    [flush, pagesMeta, bundle.project.id, activeTab, setNodes, clearHistory]
+    [flush, pagesMeta, bundle.project.id, activeTab, setNodes, clearHistory, supabase]
   );
 
   const navEdgesForExport =
@@ -746,17 +827,15 @@ function CanvasWorkspace({
                   onConnect={onConnect}
                   onNodeDragStart={() => beforeMutate()}
                   onSelectionDragStart={() => beforeMutate()}
-                  nodeTypes={nodeTypes}
+                  nodeTypes={flowNodeTypes}
                   onPaneContextMenu={onPaneContextMenu}
                   onInit={(inst) => {
                     rfInstance.current = inst;
                     inst.fitView({ padding: 0.2, duration: 0 });
                   }}
                   deleteKeyCode={["Backspace", "Delete"]}
-                  defaultEdgeOptions={{
-                    style: { stroke: appearance.edge, strokeWidth: 1.5 },
-                  }}
-                  proOptions={{ hideAttribution: true }}
+                  defaultEdgeOptions={defaultEdgeOptions}
+                  proOptions={flowProOptions}
                 >
                   <Background
                     variant={BackgroundVariant.Dots}
@@ -789,6 +868,7 @@ function CanvasWorkspace({
                   }))
                 }
                 onBack={() => void selectTabFixed(SITE_MAP_TAB_ID)}
+                onOpenExport={() => setExportOpen(true)}
                 onHistoryCheckpoint={beforeMutate}
                 pageOptions={pagesMeta.map((p) => ({ id: p.id, name: p.name }))}
               />
@@ -807,6 +887,7 @@ function CanvasWorkspace({
             open={exportOpen}
             onClose={() => setExportOpen(false)}
             snapshot={exportSnapshot}
+            activePageId={designPageId}
           />
           <PremiumModal
             open={premium !== null}

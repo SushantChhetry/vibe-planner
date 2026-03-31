@@ -1,20 +1,16 @@
 import Link from "next/link";
 import { ArrowRight, FileOutput, LayoutGrid, Sparkles } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@clerk/nextjs/server";
 import { SiteHeader } from "@/components/marketing/SiteHeader";
 
 export default async function HomePage() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const signedIn = !!user;
+  const { userId } = await auth();
+  const signedIn = Boolean(userId);
   const ctaHref = signedIn ? "/canvas/new" : "/login?next=/canvas/new";
 
   return (
     <div className="marketing-mesh min-h-screen text-[var(--foreground)]">
-      <SiteHeader signedIn={signedIn} />
+      <SiteHeader />
       <main className="mx-auto max-w-6xl px-6 pb-24 pt-12 sm:pt-16 md:pt-20">
         <div className="grid gap-12 lg:grid-cols-[1fr_1.05fr] lg:gap-16 lg:items-center">
           <div>

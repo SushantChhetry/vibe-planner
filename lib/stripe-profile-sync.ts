@@ -5,13 +5,13 @@ function customerId(sub: Stripe.Subscription): string {
   return typeof sub.customer === "string" ? sub.customer : sub.customer.id;
 }
 
-/** Resolve Supabase user id from subscription metadata or existing profile row. */
-async function resolveUserId(
+/** Resolve internal profile UUID from subscription metadata or existing profile row. */
+async function resolveProfileId(
   admin: ReturnType<typeof createAdminClient>,
   sub: Stripe.Subscription
 ): Promise<string | null> {
-  const metaUid = sub.metadata?.supabase_user_id;
-  if (metaUid) return metaUid;
+  const metaId = sub.metadata?.profile_id;
+  if (metaId) return metaId;
 
   const cid = customerId(sub);
   const { data } = await admin
@@ -25,9 +25,9 @@ async function resolveUserId(
 
 export async function syncProfileFromStripeSubscription(sub: Stripe.Subscription) {
   const admin = createAdminClient();
-  const userId = await resolveUserId(admin, sub);
-  if (!userId) {
-    console.error("[stripe sync] No user for subscription", sub.id);
+  const profileId = await resolveProfileId(admin, sub);
+  if (!profileId) {
+    console.error("[stripe sync] No profile for subscription", sub.id);
     return;
   }
 
@@ -39,7 +39,7 @@ export async function syncProfileFromStripeSubscription(sub: Stripe.Subscription
       stripe_subscription_id: sub.id,
       subscription_status: sub.status,
     })
-    .eq("id", userId);
+    .eq("id", profileId);
 
   if (error) {
     console.error("[stripe sync] profiles update failed", error);

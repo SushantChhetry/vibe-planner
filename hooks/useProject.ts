@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import { createClient } from "@/lib/supabase";
+import { useClerkSupabase } from "@/lib/supabase";
 import type { SaveStatus } from "@/components/ui/TopBar";
 
 export function useDebouncedProjectRename(
@@ -10,6 +10,7 @@ export function useDebouncedProjectRename(
   initialName: string,
   onSaveStatus: (status: SaveStatus) => void
 ) {
+  const supabase = useClerkSupabase();
   const lastPersisted = useRef(initialName);
   const nameRef = useRef(name);
   const statusRef = useRef(onSaveStatus);
@@ -25,7 +26,6 @@ export function useDebouncedProjectRename(
       if (!projectId || nameToSave === lastPersisted.current) return;
 
       statusRef.current("saving");
-      const supabase = createClient();
       const { data, error } = await supabase
         .from("projects")
         .update({ name: nameToSave, updated_at: new Date().toISOString() })
@@ -41,7 +41,7 @@ export function useDebouncedProjectRename(
       statusRef.current("saved");
       window.setTimeout(() => statusRef.current("idle"), 2000);
     },
-    [projectId]
+    [projectId, supabase]
   );
 
   useEffect(() => {
