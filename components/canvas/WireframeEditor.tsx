@@ -188,6 +188,60 @@ const VIEWPORT_MIN_H_RATIO = 0.68;
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 2;
 
+const WIREFRAME_VIEWPORT_STORAGE_PREFIX = "pumi-wireframe-viewport:v1:";
+
+type WireframeViewportStored = {
+  viewportId: ViewportPresetId;
+  fluidSizeMode: "fit" | "custom";
+  fluidCustomW: number;
+  fluidCustomH: number;
+};
+
+function isViewportPresetId(id: unknown): id is ViewportPresetId {
+  return typeof id === "string" && VIEWPORT_PRESETS.some((p) => p.id === id);
+}
+
+function readStoredWireframeViewport(blockId: string): WireframeViewportStored | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(WIREFRAME_VIEWPORT_STORAGE_PREFIX + blockId);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as Partial<WireframeViewportStored>;
+    if (!isViewportPresetId(p.viewportId)) return null;
+    if (p.fluidSizeMode !== "fit" && p.fluidSizeMode !== "custom") return null;
+    if (typeof p.fluidCustomW !== "number" || !Number.isFinite(p.fluidCustomW)) return null;
+    if (typeof p.fluidCustomH !== "number" || !Number.isFinite(p.fluidCustomH)) return null;
+    return {
+      viewportId: p.viewportId,
+      fluidSizeMode: p.fluidSizeMode,
+      fluidCustomW: Math.min(FLUID_MAX_W, Math.max(FLUID_MIN_W, p.fluidCustomW)),
+      fluidCustomH: Math.min(FLUID_MAX_H, Math.max(FLUID_MIN_H, p.fluidCustomH)),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredWireframeViewport(blockId: string, state: WireframeViewportStored) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(WIREFRAME_VIEWPORT_STORAGE_PREFIX + blockId, JSON.stringify(state));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+function initialWireframeViewport(blockId: string): WireframeViewportStored {
+  const defaults: WireframeViewportStored = {
+    viewportId: "fluid",
+    fluidSizeMode: "fit",
+    fluidCustomW: 1200,
+    fluidCustomH: 800,
+  };
+  if (typeof window === "undefined") return defaults;
+  return readStoredWireframeViewport(blockId) ?? defaults;
+}
+
 function snap(n: number): number {
   return Math.round(n / GRID) * GRID;
 }
@@ -435,10 +489,11 @@ export function WireframeEditor({
 }) {
   const [selectionIds, setSelectionIds] = useState<string[]>([]);
   const [previewMode, setPreviewMode] = useState(false);
-  const [viewportId, setViewportId] = useState<ViewportPresetId>("fluid");
-  const [fluidSizeMode, setFluidSizeMode] = useState<"fit" | "custom">("fit");
-  const [fluidCustomW, setFluidCustomW] = useState(1200);
-  const [fluidCustomH, setFluidCustomH] = useState(800);
+  const viewportInit = useMemo(() => initialWireframeViewport(blockId), [blockId]);
+  const [viewportId, setViewportId] = useState(viewportInit.viewportId);
+  const [fluidSizeMode, setFluidSizeMode] = useState(viewportInit.fluidSizeMode);
+  const [fluidCustomW, setFluidCustomW] = useState(viewportInit.fluidCustomW);
+  const [fluidCustomH, setFluidCustomH] = useState(viewportInit.fluidCustomH);
   const [zoom, setZoomState] = useState(1);
   const [hostRect, setHostRect] = useState({ w: 0, h: 0 });
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -471,6 +526,15 @@ export function WireframeEditor({
   onChangeRef.current = onChange;
   selectionIdsRef.current = selectionIds;
   zoomRef.current = zoom;
+
+  useEffect(() => {
+    writeStoredWireframeViewport(blockId, {
+      viewportId,
+      fluidSizeMode,
+      fluidCustomW,
+      fluidCustomH,
+    });
+  }, [blockId, viewportId, fluidSizeMode, fluidCustomW, fluidCustomH]);
 
   const setZoom = useCallback((z: number | ((prev: number) => number)) => {
     setZoomState((prev) => {

@@ -857,6 +857,7 @@ function CanvasWorkspace({
               </>
             ) : hostBlockId ? (
               <WireframeEditor
+                key={hostBlockId}
                 pageSurface
                 blockId={hostBlockId}
                 blockName={currentPageName}
