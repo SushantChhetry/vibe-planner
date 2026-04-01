@@ -93,6 +93,10 @@ export type WireframeElementMeta = {
   inputType?: string;
   /** For Input: validation, submit binding, or what happens with the value */
   fieldBehavior?: string;
+  /** Simple Mode: selected layout variant, e.g. "Text + Image right" */
+  simpleModeVariant?: string;
+  /** Simple Mode: free-form notes about what this section should contain */
+  notes?: string;
 };
 
 export type BlockRow = {

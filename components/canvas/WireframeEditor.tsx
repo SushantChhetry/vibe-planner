@@ -43,6 +43,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { AddWireframeElementModal } from "@/components/canvas/AddWireframeElementModal";
 import { WireframeElementVisual } from "@/components/canvas/WireframeElementVisual";
+import { SimpleModeView } from "@/components/canvas/SimpleModeView";
 import {
   WIRE_ELEMENT_TYPES,
   type WireElementType,
@@ -240,6 +241,28 @@ function initialWireframeViewport(blockId: string): WireframeViewportStored {
   };
   if (typeof window === "undefined") return defaults;
   return readStoredWireframeViewport(blockId) ?? defaults;
+}
+
+const WIREFRAME_VIEW_MODE_STORAGE_PREFIX = "pumi-wireframe-view-mode:v1:";
+
+function readStoredViewMode(blockId: string): "simple" | "advanced" {
+  if (typeof window === "undefined") return "simple";
+  try {
+    const raw = localStorage.getItem(WIREFRAME_VIEW_MODE_STORAGE_PREFIX + blockId);
+    if (raw === "advanced") return "advanced";
+  } catch {
+    /* quota / private mode */
+  }
+  return "simple";
+}
+
+function writeStoredViewMode(blockId: string, mode: "simple" | "advanced") {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(WIREFRAME_VIEW_MODE_STORAGE_PREFIX + blockId, mode);
+  } catch {
+    /* quota / private mode */
+  }
 }
 
 function snap(n: number): number {
@@ -487,6 +510,9 @@ export function WireframeEditor({
   pageOptions?: { id: string; name: string }[];
   pageSurface?: boolean;
 }) {
+  const [viewMode, setViewMode] = useState<"simple" | "advanced">(() =>
+    elements.length === 0 ? "simple" : readStoredViewMode(blockId)
+  );
   const [selectionIds, setSelectionIds] = useState<string[]>([]);
   const [previewMode, setPreviewMode] = useState(false);
   const viewportInit = useMemo(() => initialWireframeViewport(blockId), [blockId]);
@@ -650,6 +676,16 @@ export function WireframeEditor({
 
   const atMinZoom = zoom <= ZOOM_MIN;
   const atMaxZoom = zoom >= ZOOM_MAX;
+
+  const switchToAdvanced = useCallback(() => {
+    setViewMode("advanced");
+    writeStoredViewMode(blockId, "advanced");
+  }, [blockId]);
+
+  const switchToSimple = useCallback(() => {
+    setViewMode("simple");
+    writeStoredViewMode(blockId, "simple");
+  }, [blockId]);
 
   const openAddModal = useCallback(() => setAddModalOpen(true), []);
   const closeAddModal = useCallback(() => setAddModalOpen(false), []);
@@ -1286,6 +1322,38 @@ export function WireframeEditor({
         </div>
 
         <div className="relative flex flex-wrap items-center gap-2">
+          <div
+            className="flex rounded-md border border-stone-400 bg-white p-0.5 shadow-sm"
+            role="group"
+            aria-label="Canvas mode"
+          >
+            <button
+              type="button"
+              className={`rounded px-2.5 py-1 font-mono text-[11px] font-medium transition-colors ${
+                viewMode === "simple"
+                  ? "bg-stone-800 text-white"
+                  : "text-stone-600 hover:bg-stone-100"
+              }`}
+              onClick={switchToSimple}
+              title="Simple mode: build with stacked section blocks"
+            >
+              Simple
+            </button>
+            <button
+              type="button"
+              className={`rounded px-2.5 py-1 font-mono text-[11px] font-medium transition-colors ${
+                viewMode === "advanced"
+                  ? "bg-stone-800 text-white"
+                  : "text-stone-600 hover:bg-stone-100"
+              }`}
+              onClick={switchToAdvanced}
+              title="Advanced mode: free-form canvas with drag, resize, and zoom"
+            >
+              Advanced
+            </button>
+          </div>
+          {viewMode === "simple" ? null : (
+            <>
           <span className="hidden font-mono text-[10px] uppercase tracking-wide text-stone-500 sm:inline">
             Screen
           </span>
@@ -1449,6 +1517,8 @@ export function WireframeEditor({
             <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden />
             Add element
           </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1459,6 +1529,16 @@ export function WireframeEditor({
         options={addPickerOptions}
       />
 
+      {viewMode === "simple" ? (
+        <SimpleModeView
+          blockId={blockId}
+          elements={elements}
+          onChange={onChange}
+          onHistoryCheckpoint={onHistoryCheckpoint}
+          onSwitchToAdvanced={switchToAdvanced}
+        />
+      ) : (
+        <>
       <div className="flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-2 border-b border-stone-200/90 bg-white/90 px-4 py-2 font-mono text-[11px] text-stone-600">
         <span>
           <span className="text-stone-400">Artboard</span>{" "}
@@ -1916,6 +1996,8 @@ export function WireframeEditor({
           </aside>
         ) : null}
       </div>
+        </>
+      )}
     </div>
   );
 }

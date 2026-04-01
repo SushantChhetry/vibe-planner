@@ -28,6 +28,84 @@ export type AppTemplate = {
   edges: TemplateEdgeStub[];
 };
 
+/** Default inner width for desktop-class template authoring (~1280 viewport with gutters). */
+export const TEMPLATE_DESKTOP_CONTENT_W = 832;
+
+/** Usable inner width on a 390px phone preset (artboard padding handled separately). */
+export const TEMPLATE_MOBILE_CONTENT_W = 342;
+
+const MIN_FRAME_W = 8;
+const MIN_FRAME_H = 8;
+const SECTION_PAD = 12;
+const STACK_GAP = 24;
+
+function clampDimension(n: number, min: number): number {
+  if (!Number.isFinite(n)) return min;
+  return Math.max(min, n);
+}
+
+function clampNonNeg(n: number): number {
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return n;
+}
+
+/** Normalize stub geometry so the editor never receives zero/NaN sizes. */
+export function normalizeTemplateWireStub(s: TemplateWireStub): TemplateWireStub {
+  return {
+    ...s,
+    frame_x: clampNonNeg(s.frame_x),
+    frame_y: clampNonNeg(s.frame_y),
+    frame_w: clampDimension(s.frame_w, MIN_FRAME_W),
+    frame_h: clampDimension(s.frame_h, MIN_FRAME_H),
+  };
+}
+
+function bboxOfStubs(stubs: TemplateWireStub[]): {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+} {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const s of stubs) {
+    const t = normalizeTemplateWireStub(s);
+    minX = Math.min(minX, t.frame_x);
+    minY = Math.min(minY, t.frame_y);
+    maxX = Math.max(maxX, t.frame_x + t.frame_w);
+    maxY = Math.max(maxY, t.frame_y + t.frame_h);
+  }
+  if (!Number.isFinite(minX)) {
+    return { minX: 0, minY: 0, maxX: MIN_FRAME_W, maxY: MIN_FRAME_H };
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function sectionStubForGroup(
+  label: string,
+  inner: TemplateWireStub[],
+  yCursor: number
+): { section: TemplateWireStub; shifted: TemplateWireStub[] } {
+  const shifted = inner.map((w) =>
+    normalizeTemplateWireStub({
+      ...w,
+      frame_y: w.frame_y + yCursor,
+    })
+  );
+  const { minX, minY, maxX, maxY } = bboxOfStubs(shifted);
+  const section: TemplateWireStub = normalizeTemplateWireStub({
+    element_type: "Section",
+    label,
+    frame_x: Math.max(0, minX - SECTION_PAD),
+    frame_y: Math.max(0, minY - SECTION_PAD),
+    frame_w: maxX - minX + SECTION_PAD * 2,
+    frame_h: maxY - minY + SECTION_PAD * 2,
+  });
+  return { section, shifted };
+}
+
 function wf(
   element_type: WireElementType,
   label: string,
@@ -36,7 +114,14 @@ function wf(
   frame_w: number,
   frame_h: number
 ): TemplateWireStub {
-  return { element_type, label, frame_x, frame_y, frame_w, frame_h };
+  return normalizeTemplateWireStub({
+    element_type,
+    label,
+    frame_x,
+    frame_y,
+    frame_w,
+    frame_h,
+  });
 }
 
 /** Build client wireframe rows for a new block id (call from browser only). */
@@ -45,19 +130,22 @@ export function templateWireStubsToRows(
   stubs: TemplateWireStub[]
 ): WireframeElementRow[] {
   const now = new Date().toISOString();
-  return stubs.map((s, sort_order) => ({
-    id: crypto.randomUUID(),
-    parent_block_id: blockId,
-    element_type: s.element_type,
-    label: s.label,
-    sort_order,
-    created_at: now,
-    frame_x: s.frame_x,
-    frame_y: s.frame_y,
-    frame_w: s.frame_w,
-    frame_h: s.frame_h,
-    meta: {},
-  }));
+  return stubs.map((s, sort_order) => {
+    const n = normalizeTemplateWireStub(s);
+    return {
+      id: crypto.randomUUID(),
+      parent_block_id: blockId,
+      element_type: n.element_type,
+      label: n.label,
+      sort_order,
+      created_at: now,
+      frame_x: n.frame_x,
+      frame_y: n.frame_y,
+      frame_w: n.frame_w,
+      frame_h: n.frame_h,
+      meta: {},
+    };
+  });
 }
 
 /** Stack all template block wireframes onto a single page host block (page-level editor). */
@@ -72,13 +160,16 @@ export function flattenTemplateToWireRows(
       yOff += 48;
       continue;
     }
-    const shifted = stub.wireframe.map((w) => ({
-      ...w,
-      frame_y: w.frame_y + yOff,
-    }));
-    out.push(...templateWireStubsToRows(hostBlockId, shifted));
-    const bottom = Math.max(...stub.wireframe.map((w) => w.frame_y + w.frame_h));
-    yOff += bottom + 24;
+    const { section, shifted } = sectionStubForGroup(stub.name, stub.wireframe, yOff);
+    const combined = [section, ...shifted];
+    out.push(...templateWireStubsToRows(hostBlockId, combined));
+    const extent = Math.max(
+      ...combined.map((e) => {
+        const n = normalizeTemplateWireStub(e);
+        return n.frame_y + n.frame_h;
+      })
+    );
+    yOff = extent + STACK_GAP;
   }
   return out;
 }
@@ -433,9 +524,9 @@ export const AI_TEMPLATES: AppTemplate[] = [
         x: 120,
         y: 60,
         wireframe: [
-          wf("Secondary button", "Menu", 24, 16, 56, 44),
-          wf("Heading", "Home", 96, 20, 224, 40),
-          wf("Primary button", "Create", 680, 18, 128, 44),
+          wf("Secondary button", "Menu", 16, 16, 48, 44),
+          wf("Heading", "Home", 72, 18, 200, 40),
+          wf("Primary button", "Create", 282, 16, 56, 44),
         ],
       },
       {
@@ -446,7 +537,7 @@ export const AI_TEMPLATES: AppTemplate[] = [
         y: 220,
         wireframe: [
           wf("Heading", "For you", 24, 24, 200, 40),
-          wf("List", "Scrollable cards · pull to refresh", 24, 80, 760, 320),
+          wf("List", "Scrollable cards · pull to refresh", 24, 76, TEMPLATE_MOBILE_CONTENT_W, 320),
         ],
       },
       {
@@ -456,10 +547,10 @@ export const AI_TEMPLATES: AppTemplate[] = [
         x: 420,
         y: 220,
         wireframe: [
-          wf("Heading", "New post", 24, 24, 400, 40),
-          wf("Body text", "What do you want to share?", 24, 80, 520, 100),
-          wf("Primary button", "Publish", 24, 200, 136, 48),
-          wf("Secondary button", "Cancel", 176, 202, 120, 44),
+          wf("Heading", "New post", 24, 24, 294, 40),
+          wf("Body text", "What do you want to share?", 24, 76, TEMPLATE_MOBILE_CONTENT_W, 100),
+          wf("Primary button", "Publish", 24, 192, 120, 48),
+          wf("Secondary button", "Cancel", 156, 194, 100, 44),
         ],
       },
       {
@@ -469,8 +560,8 @@ export const AI_TEMPLATES: AppTemplate[] = [
         x: 420,
         y: 420,
         wireframe: [
-          wf("Heading", "Account", 24, 24, 240, 40),
-          wf("List", "Profile · Notifications · Privacy · Log out", 24, 80, 320, 220),
+          wf("Heading", "Account", 24, 24, 200, 40),
+          wf("List", "Profile · Notifications · Privacy · Log out", 24, 76, TEMPLATE_MOBILE_CONTENT_W, 220),
         ],
       },
       {
@@ -480,10 +571,10 @@ export const AI_TEMPLATES: AppTemplate[] = [
         x: 120,
         y: 420,
         wireframe: [
-          wf("Image", "Illustration placeholder", 24, 48, 200, 160),
-          wf("Heading", "No posts yet", 248, 64, 400, 48),
-          wf("Body text", "When you or your teammates publish, they’ll show up here.", 248, 128, 480, 72),
-          wf("Primary button", "Create first post", 248, 216, 200, 48),
+          wf("Image", "Illustration placeholder", 24, 48, 120, 120),
+          wf("Heading", "No posts yet", 156, 56, 174, 40),
+          wf("Body text", "When you or your teammates publish, they’ll show up here.", 156, 104, 174, 72),
+          wf("Primary button", "Create first post", 156, 188, 174, 48),
         ],
       },
     ],

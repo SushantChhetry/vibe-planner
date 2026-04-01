@@ -26,10 +26,11 @@ function wireframeRect(w: { frame_x: number; frame_y: number; frame_w: number; f
 }
 
 const AI_TAIL =
-  "\n\n---\n\n**Instruction for the coding agent:** Implement this structure exactly. " +
-  "Preserve page names, block types, navigation flows between blocks, and the intent described in each block. " +
-  "Treat each block wireframe as a spatial low-fidelity mock: element positions and box sizes are intentional layout hints. " +
-  "Wireframe coordinates use a top-left origin on each page’s artboard; preserve reading order and approximate proportions when building UI. " +
+  "\n\n---\n\n**Instruction for the coding agent:** Treat the export as the **source of truth for product structure**, not for final visual design. " +
+  "Preserve page names, block types, navigation flows, and each block’s described intent **exactly**. " +
+  "Wireframes are **low-fidelity layout sketches only**: they convey hierarchy, grouping, and reading order—not pixel-accurate UI. " +
+  "Do **not** recreate bounding boxes or coordinates literally in production UI; interpret them as rough spatial hints (what sits above/below or beside what, and rough balance). " +
+  "Wireframe coordinates use a top-left origin on each page’s artboard. " +
   "Do not invent major screens or flows that are not represented here. Ask only if something is genuinely ambiguous.";
 
 /** Clipboard-friendly block for coding agents (same narrative as export footers). */
@@ -148,7 +149,7 @@ export function buildExportContent(snapshot: ExportSnapshot, format: ExportForma
             };
           }),
         agentInstruction:
-          "Implement this structure exactly. Preserve pages, site-level navigation between pages, block types, in-page navigation, and wireframe layout (positions and sizes) where provided. Do not invent major flows not represented.",
+          "Preserve pages, site-level navigation, block types, in-page navigation, and each block’s described intent exactly—this is the structural spec. Wireframes are low-fidelity: use them for hierarchy, grouping, and reading order only; do not treat exported coordinates or box dimensions as literal layout for final UI. Do not invent major flows not represented.",
       },
       null,
       2
@@ -216,10 +217,10 @@ export function buildExportContent(snapshot: ExportSnapshot, format: ExportForma
     }
     lines.push("Rules:");
     lines.push(
-      "- Follow this structure exactly when generating or modifying code."
+      "- Follow pages, blocks, navigation, and described intent exactly when generating or modifying code; wireframes are not a visual mockup to copy pixel-for-pixel."
     );
     lines.push(
-      "- Wireframes use rough bounding boxes on a page-local artboard (top-left origin); preserve relative placement and proportions when building UI."
+      "- Wireframes use rough bounding boxes on a page-local artboard (top-left origin). Infer hierarchy and reading order from them; keep sensible relative placement, but feel free to choose real components, spacing, and responsive behavior appropriate for the stack."
     );
     lines.push(
       "- Do not add major screens or user flows unless they extend an existing block clearly."

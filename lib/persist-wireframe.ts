@@ -13,16 +13,12 @@ export async function persistWireframesForPage(
 ): Promise<{ error: Error | null }> {
   for (const blockId of blockIds) {
     const rows = wireframeByBlockId[blockId] ?? [];
-    const ordered = [...rows].sort((a, b) => {
-      if (a.frame_y !== b.frame_y) return a.frame_y - b.frame_y;
-      return a.frame_x - b.frame_x;
-    });
-    const dbRows = ordered.map((r, index) => ({
+    const dbRows = rows.map((r) => ({
       id: r.id,
       parent_block_id: blockId,
       element_type: r.element_type,
       label: r.label ?? "",
-      sort_order: index,
+      sort_order: r.sort_order,
       frame_x: r.frame_x,
       frame_y: r.frame_y,
       frame_w: r.frame_w,
@@ -43,7 +39,7 @@ export async function persistWireframesForPage(
       .eq("parent_block_id", blockId);
     if (exErr) return { error: new Error(exErr.message) };
 
-    const keep = new Set(ordered.map((r) => r.id));
+    const keep = new Set(rows.map((r) => r.id));
     const toDelete =
       existing?.filter((e) => !keep.has(e.id)).map((e) => e.id) ?? [];
     if (toDelete.length) {

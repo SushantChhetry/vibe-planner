@@ -1,7 +1,10 @@
+import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, FileOutput, LayoutGrid, Sparkles } from "lucide-react";
 import { auth } from "@clerk/nextjs/server";
+import { AbstractCanvasPreview } from "@/components/marketing/AbstractCanvasPreview";
 import { SiteHeader } from "@/components/marketing/SiteHeader";
+import { MADE_FOR_LOGOS } from "@/lib/made-for-logos";
 
 export default async function HomePage() {
   const { userId } = await auth();
@@ -21,15 +24,8 @@ export default async function HomePage() {
               Map your app before you build it.
             </h1>
             <p className="mt-6 max-w-xl text-pretty text-lg leading-relaxed text-stone-600">
-              A free-form canvas for screens, blocks, and navigation. Export Markdown,{" "}
-              <code className="rounded-md border border-stone-200/80 bg-white px-1.5 py-0.5 font-mono text-[0.9em] text-stone-800">
-                .cursorrules
-              </code>
-              ,{" "}
-              <code className="rounded-md border border-stone-200/80 bg-white px-1.5 py-0.5 font-mono text-[0.9em] text-stone-800">
-                CLAUDE.md
-              </code>
-              , or JSON for Cursor, Claude, and your toolchain.
+              Skip the endless prompt tennis. Map a low-fidelity wireframe—screens, flows,
+              and blocks you can actually design and build on top of.
             </p>
             <div className="mt-9 flex flex-wrap gap-3">
               <Link
@@ -53,25 +49,49 @@ export default async function HomePage() {
             aria-hidden
           >
             <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_bottom_right,transparent_40%,rgba(15,118,110,0.04)_100%)]" />
-            <div className="relative grid grid-cols-6 gap-2 sm:grid-cols-8 sm:gap-2.5">
-              {[
-                "col-span-4 row-span-1 h-14 rounded-lg border border-dashed border-stone-300/90 bg-stone-50/80",
-                "col-span-2 h-14 rounded-lg border border-stone-200 bg-white",
-                "col-span-3 h-24 rounded-lg border border-stone-200 bg-white shadow-sm",
-                "col-span-3 h-24 rounded-lg border border-stone-200 bg-white/90",
-                "col-span-2 h-16 rounded-lg border border-stone-200 bg-stone-50/90",
-                "col-span-4 h-16 rounded-lg border border-dashed border-teal-700/25 bg-teal-50/40",
-                "col-span-5 h-20 rounded-lg border border-stone-200 bg-white",
-                "col-span-3 h-20 rounded-lg border border-stone-200/90 bg-stone-50/70",
-              ].map((cls, i) => (
-                <div key={i} className={cls} />
-              ))}
-            </div>
-            <p className="relative mt-6 text-center text-xs font-medium uppercase tracking-wider text-stone-500">
-              Abstract canvas preview
-            </p>
+            <AbstractCanvasPreview />
           </div>
         </div>
+
+        <section className="mt-16 md:mt-20" aria-labelledby="made-for-heading">
+          <div className="rounded-2xl border border-stone-200/80 bg-white/50 px-6 py-10 shadow-sm shadow-stone-900/5 backdrop-blur-sm sm:px-10">
+            <h2
+              id="made-for-heading"
+              className="text-center text-sm font-semibold uppercase tracking-[0.14em] text-stone-500"
+            >
+              Made for
+            </h2>
+            <ul
+              className="mt-8 flex list-none flex-wrap items-center justify-center gap-x-8 gap-y-6 sm:gap-x-10"
+              aria-label="Tools and platforms"
+            >
+              {MADE_FOR_LOGOS.map((logo) => (
+                <li key={logo.src} className="flex items-center justify-center">
+                  <Image
+                    src={logo.src}
+                    alt={logo.alt}
+                    width={132}
+                    height={40}
+                    unoptimized
+                    className="h-7 w-auto max-w-[6.5rem] object-contain object-center opacity-[0.88] transition hover:opacity-100 sm:h-8 sm:max-w-[7.5rem]"
+                  />
+                </li>
+              ))}
+            </ul>
+            <p className="mt-6 text-center text-xs text-stone-400">
+              Trademarks belong to their owners. Marks from{" "}
+              <a
+                href="https://simpleicons.org/"
+                className="underline decoration-stone-300 underline-offset-2 hover:text-stone-600"
+                rel="noreferrer"
+                target="_blank"
+              >
+                Simple Icons
+              </a>{" "}
+              (CC0) and vendor brand pages where applicable.
+            </p>
+          </div>
+        </section>
 
         <section className="mt-20 md:mt-28">
           <h2 className="text-center text-sm font-semibold uppercase tracking-[0.14em] text-stone-500">
@@ -105,31 +125,6 @@ export default async function HomePage() {
                 Give models a single source of truth instead of a wall of chat history.
               </p>
             </div>
-          </div>
-        </section>
-
-        <section className="mt-20 md:mt-28">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <h2 className="text-xl font-semibold text-stone-900">Example exports</h2>
-            <p className="text-sm text-stone-600">What you might copy out of a project.</p>
-          </div>
-          <div className="mt-8 grid gap-5 lg:grid-cols-2">
-            <pre className="overflow-x-auto rounded-2xl border border-stone-200/80 bg-white/80 p-5 text-sm leading-relaxed text-stone-800 shadow-sm shadow-stone-900/5 backdrop-blur-sm">
-              {`# My product
-## Landing
-- **Hero** (Hero)
-  - Headline and primary CTA
-
-### Navigation
-- Navbar → Form — _Sign up CTA_`}
-            </pre>
-            <pre className="overflow-x-auto rounded-2xl border border-stone-200/80 bg-white/80 p-5 text-sm leading-relaxed text-stone-800 shadow-sm shadow-stone-900/5 backdrop-blur-sm">
-              {`# App structure (from PuMi)
-Project: My product
-...
-Rules:
-- Follow this structure exactly when generating or modifying code.`}
-            </pre>
           </div>
         </section>
       </main>
